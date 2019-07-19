@@ -12,3 +12,4 @@ repository = "https://github.com/maeln/wyzoid"
 
 [dependencies]
 vulkano = "0.13"
+csv = "1.1.1"

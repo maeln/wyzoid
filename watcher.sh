@@ -1,3 +1,3 @@
 #!/bin/bash
 
-shdrr -rv -Os -d shaders/src -o shaders/bin 
+shdrr -rv -Os -e lolilol -d shaders/src -o shaders/bin 
