@@ -1,3 +1,3 @@
 # Wyzoid 🧶
 
-Just a basic playground for GPGPU using [Vulkano](https://crates.io/crates/vulkano) & [SHDRR](https://crates.io/crates/shdrr).
+Just a basic playground for GPGPU using Vulkan (via [ash](https://crates.io/crates/ash)) & [SHDRR](https://crates.io/crates/shdrr).
