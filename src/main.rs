@@ -1,6 +1,5 @@
 extern crate ash;
 extern crate csv;
-extern crate vulkano;
 
 use std::convert::From;
 use std::ffi::CString;

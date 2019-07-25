@@ -11,6 +11,5 @@ repository = "https://github.com/maeln/wyzoid"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-vulkano = "0.13"
 csv = "1.1.1"
 ash = "0.29"
