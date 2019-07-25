@@ -7,8 +7,6 @@ use std::fs;
 use std::io::{self, BufRead};
 use std::mem;
 use std::path::PathBuf;
-use std::str;
-use std::sync::Arc;
 
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk::{self, PhysicalDevice, Queue};
@@ -57,7 +55,7 @@ fn main() {
     };
 
     let mem_map_flags = vk::MemoryMapFlags::empty();
-    let mut buffer = unsafe {
+    let buffer = unsafe {
         vulkan
             .device
             .map_memory(vulkan_mem, 0, buffer_size, mem_map_flags)
@@ -129,7 +127,7 @@ fn ash_vulkan() -> VulkanState {
 
     let instance: Instance = unsafe { entry.create_instance(&create_info, None).unwrap() };
 
-    let mut physical: PhysicalDevice;
+    let physical: PhysicalDevice;
     let phy_count = unsafe { instance.enumerate_physical_devices().unwrap() };
     if phy_count.len() == 1 {
         physical = phy_count[0];
