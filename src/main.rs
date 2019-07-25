@@ -76,6 +76,28 @@ fn main() {
     unsafe {
         vulkan.device.unmap_memory(vulkan_mem);
     }
+
+    let buffer_create_info = vk::BufferCreateInfo::builder()
+        .size(buffer_size)
+        .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+        .queue_family_indices(&[vulkan.queue_family_index])
+        .build();
+
+    let buffer = unsafe {
+        vulkan
+            .device
+            .create_buffer(&buffer_create_info, None)
+            .unwrap()
+    };
+
+    unsafe {
+        vulkan
+            .device
+            .bind_buffer_memory(buffer, vulkan_mem, buffer_size);
+    }
+
+    let shader_bytecode = load_file(&PathBuf::from("shaders/bin/particles.cs.spriv")).unwrap();
 }
 
 struct VulkanState {
@@ -83,6 +105,7 @@ struct VulkanState {
     physical_device: PhysicalDevice,
     device: Device,
     queue: Queue,
+    queue_family_index: u32,
 }
 
 fn load_file(file: &PathBuf) -> Option<Vec<u8>> {
@@ -237,5 +260,6 @@ fn ash_vulkan() -> VulkanState {
         physical_device: physical,
         device,
         queue: device_queue,
+        queue_family_index: queue_index,
     }
 }
