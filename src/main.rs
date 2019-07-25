@@ -3,7 +3,7 @@ extern crate csv;
 extern crate vulkano;
 
 use std::convert::From;
-use std::ffi::CStr;
+use std::ffi::CString;
 use std::fs;
 use std::io::{self, BufRead};
 use std::mem;
@@ -109,12 +109,9 @@ fn print_tick(val: bool) {
 }
 
 fn cstr2string(mut cstr: Vec<i8>) -> String {
-    let name_len = cstr.len();
-    let name_cap = cstr.capacity();
-    let string =
-        unsafe { String::from_raw_parts(cstr.as_mut_ptr() as *mut u8, name_len, name_cap) };
+    let string = unsafe { CString::from_raw(cstr.as_mut_ptr()) };
     mem::forget(cstr);
-    string
+    String::from(string.to_string_lossy())
 }
 
 fn ash_vulkan() -> VulkanState {

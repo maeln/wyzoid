@@ -1,7 +1,8 @@
 {
-    "files.associations": {
-        "*.cs": "glsl",
-        "*.fs": "glsl",
-        "*.vs": "glsl",
-    }
+  "files.associations": {
+    "*.cs": "glsl",
+    "*.fs": "glsl",
+    "*.vs": "glsl"
+  },
+  "lldb.adapterType": "bundled"
 }
