@@ -6,8 +6,10 @@ use std::ffi::{CStr, CString};
 use std::fs;
 use std::io::{self, BufRead};
 use std::mem;
+use std::os::raw::{c_char, c_void};
 use std::path::PathBuf;
 
+use ash::extensions::ext::DebugReport;
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk::{self, PhysicalDevice, Queue};
 use ash::{Device, Entry, Instance};
@@ -342,7 +344,32 @@ fn cstr2string(mut cstr: Vec<i8>) -> String {
     String::from(string.to_string_lossy())
 }
 
+fn extension_names() -> Vec<*const i8> {
+    vec![DebugReport::name().as_ptr()]
+}
+
+unsafe extern "system" fn vulkan_debug_callback(
+    _: vk::DebugReportFlagsEXT,
+    _: vk::DebugReportObjectTypeEXT,
+    _: u64,
+    _: usize,
+    _: i32,
+    _: *const c_char,
+    p_message: *const c_char,
+    _: *mut c_void,
+) -> u32 {
+    println!("{:?}", CStr::from_ptr(p_message));
+    vk::FALSE
+}
+
 fn ash_vulkan() -> VulkanState {
+    let layer_names = [CString::new("VK_LAYER_LUNARG_standard_validation").unwrap()];
+    let layers_names_raw: Vec<*const i8> = layer_names
+        .iter()
+        .map(|raw_name| raw_name.as_ptr())
+        .collect();
+    let extension_names_raw = extension_names();
+
     let entry = Entry::new().unwrap();
     let app_info = vk::ApplicationInfo {
         api_version: ash::vk_make_version!(1, 0, 0),
@@ -351,12 +378,29 @@ fn ash_vulkan() -> VulkanState {
         ..Default::default()
     };
 
-    let create_info = vk::InstanceCreateInfo {
-        p_application_info: &app_info,
-        ..Default::default()
-    };
+    let create_info = vk::InstanceCreateInfo::builder()
+        .application_info(&app_info)
+        .enabled_layer_names(&layers_names_raw)
+        .enabled_extension_names(&extension_names_raw);
 
     let instance: Instance = unsafe { entry.create_instance(&create_info, None).unwrap() };
+
+    let debug_info = vk::DebugReportCallbackCreateInfoEXT::builder()
+        .flags(
+            vk::DebugReportFlagsEXT::ERROR
+                | vk::DebugReportFlagsEXT::WARNING
+                | vk::DebugReportFlagsEXT::PERFORMANCE_WARNING
+                | vk::DebugReportFlagsEXT::DEBUG
+                | vk::DebugReportFlagsEXT::INFORMATION,
+        )
+        .pfn_callback(Some(vulkan_debug_callback));
+
+    let debug_report_loader = DebugReport::new(&entry, &instance);
+    let debug_call_back = unsafe {
+        debug_report_loader
+            .create_debug_report_callback(&debug_info, None)
+            .unwrap()
+    };
 
     let physical: PhysicalDevice;
     let phy_count = unsafe { instance.enumerate_physical_devices().unwrap() };
