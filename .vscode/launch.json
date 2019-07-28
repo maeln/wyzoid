@@ -26,6 +26,17 @@
       "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false
+    },
+    {
+      "name": "(Windows) Release Launch",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/release/wyzoid.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false
     }
   ]
 }
