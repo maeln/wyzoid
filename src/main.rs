@@ -557,8 +557,6 @@ fn ash_vulkan() -> VulkanState {
             .unwrap()
     };
 
-    println!("{:?}", physical);
-
     VulkanState {
         entry,
         instance,
