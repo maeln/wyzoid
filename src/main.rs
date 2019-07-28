@@ -24,20 +24,15 @@ fn get_fract_s(date: Instant) -> String {
 fn main() {
     let vulkan = ash_vulkan();
     println!("[NFO] Vulkan initialized.");
-    println!("{:?}", vulkan.physical_device);
     let start = Instant::now();
 
-    const buffer_capacity: u64 = 1024 * 1024 * 4;
-    println!("[NFO] -1");
+    const buffer_capacity: u64 = 1920 * 1080 * 4;
     let buffer_size: u64 = buffer_capacity * (std::mem::size_of::<f32>() as u64);
-    println!("[NFO] 0");
     let mem_props = unsafe {
         vulkan
             .instance
             .get_physical_device_memory_properties(vulkan.physical_device)
     };
-
-    println!("[NFO] 1");
 
     let mut mem_index: Option<usize> = None;
     for i in 0..(mem_props.memory_type_count as usize) {
@@ -55,8 +50,6 @@ fn main() {
         }
     }
 
-    println!("[NFO] 2");
-
     if mem_index.is_none() {
         panic!("[ERR] Could not find a memory type fitting our need.");
     }
@@ -72,8 +65,6 @@ fn main() {
             .expect("[ERR] Could not allocate memory in device.")
     };
 
-    println!("[NFO] 3");
-
     let mem_map_flags = vk::MemoryMapFlags::empty();
     let mut buffer: *mut f32 = unsafe {
         vulkan
@@ -82,16 +73,12 @@ fn main() {
             .expect("[ERR] Could not map memory.") as *mut f32
     };
 
-    println!("[NFO] 4");
-
-    println!("buff {:?}", buffer);
     for i in 0..buffer_capacity {
         unsafe {
             *buffer = i as f32;
             buffer = buffer.offset(1)
         }
     }
-    println!("buff {:?}", buffer);
 
     unsafe {
         vulkan.device.unmap_memory(vulkan_mem);
@@ -365,6 +352,7 @@ fn to_vec32(vecin: Vec<u8>) -> Vec<u32> {
 }
 
 struct VulkanState {
+    entry: Entry,
     instance: Instance,
     physical_device: PhysicalDevice,
     device: Device,
@@ -572,6 +560,7 @@ fn ash_vulkan() -> VulkanState {
     println!("{:?}", physical);
 
     VulkanState {
+        entry,
         instance,
         physical_device: physical,
         device,
