@@ -26,7 +26,7 @@ fn main() {
     println!("[NFO] Vulkan initialized.");
     let start = Instant::now();
 
-    const buffer_capacity: u64 = 1024 * 1024 * 32;
+    const buffer_capacity: u64 = 1024 * 1024 * 4;
     let buffer_size: u64 = buffer_capacity * (std::mem::size_of::<f32>() as u64);
     let mem_props = unsafe {
         vulkan
@@ -304,7 +304,15 @@ fn main() {
     let new_start = Instant::now();
     let mut hello: Vec<f32> = Vec::with_capacity(buffer_capacity as usize);
     for i in 0..buffer_capacity {
-        hello.push(f32::sqrt(i as f32));
+        hello.push(i as f32);
+    }
+    for i in 0..((buffer_capacity / 4) as usize) - 4 {
+        let r = f32::sqrt(hello[(i + 0) * 4] * hello[(i + 3) * 4]);
+        let c = f32::sin(hello[(i + 1) * 4]);
+        hello[(i + 0) * 4] = r * c;
+        hello[(i + 1) * 4] = c;
+        hello[(i + 2) * 4] = 0.0;
+        hello[(i + 3) * 4] = 0.0;
     }
     let new_spent = get_fract_s(new_start);
     println!("[NFO] Time taken: {} ms", new_spent);
