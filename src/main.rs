@@ -93,11 +93,14 @@ fn main() {
             .unwrap()
     };
 
+    let mem_requirement = unsafe { vulkan.device.get_buffer_memory_requirements(buffer) };
+
     unsafe {
         vulkan
             .device
-            .bind_buffer_memory(buffer, vulkan_mem, buffer_size);
-    }
+            .bind_buffer_memory(buffer, vulkan_mem, 0)
+            .expect("[ERR] Could not bind buffer memory")
+    };
 
     let shader_bytecode = to_vec32(
         load_file(&PathBuf::from("shaders/bin/double/double.cs.spriv"))
@@ -299,8 +302,8 @@ fn main() {
             buffer_capacity as usize,
             buffer_capacity as usize,
         );
-        for i in 0..output.len() {
-            print!("{} ", output[i]);
+        for item in &output {
+            print!("{} ", item);
         }
         mem::forget(output);
     }
@@ -314,7 +317,6 @@ struct VulkanState {
     instance: Instance,
     physical_device: PhysicalDevice,
     device: Device,
-    queue: Queue,
     queue_family_index: u32,
 }
 
@@ -358,7 +360,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     p_message: *const c_char,
     _: *mut c_void,
 ) -> u32 {
-    println!("{:?}", CStr::from_ptr(p_message));
+    println!("\n[VAL] {:?}", CStr::from_ptr(p_message));
     vk::FALSE
 }
 
@@ -370,14 +372,12 @@ fn ash_vulkan() -> VulkanState {
         .collect();
     let extension_names_raw = extension_names();
 
+    let app_name = CString::new("Wyzoid").unwrap();
     let entry = Entry::new().unwrap();
-    let app_info = vk::ApplicationInfo {
-        api_version: ash::vk_make_version!(1, 0, 0),
-        p_application_name: "Wyzoid".as_ptr() as *const i8,
-        application_version: ash::vk_make_version!(1, 0, 0),
-        ..Default::default()
-    };
-
+    let app_info = vk::ApplicationInfo::builder()
+        .api_version(ash::vk_make_version!(1, 0, 0))
+        .application_name(&app_name)
+        .application_version(ash::vk_make_version!(1, 0, 0));
     let create_info = vk::InstanceCreateInfo::builder()
         .application_info(&app_info)
         .enabled_layer_names(&layers_names_raw)
@@ -389,9 +389,7 @@ fn ash_vulkan() -> VulkanState {
         .flags(
             vk::DebugReportFlagsEXT::ERROR
                 | vk::DebugReportFlagsEXT::WARNING
-                | vk::DebugReportFlagsEXT::PERFORMANCE_WARNING
-                | vk::DebugReportFlagsEXT::DEBUG
-                | vk::DebugReportFlagsEXT::INFORMATION,
+                | vk::DebugReportFlagsEXT::PERFORMANCE_WARNING,
         )
         .pfn_callback(Some(vulkan_debug_callback));
 
@@ -477,9 +475,10 @@ fn ash_vulkan() -> VulkanState {
             .filter_map(|(index, ref nfo)| {
                 let support_compute = nfo.queue_flags.contains(vk::QueueFlags::COMPUTE);
                 let support_transfer = nfo.queue_flags.contains(vk::QueueFlags::TRANSFER);
-                match support_compute && support_transfer {
-                    true => Some(index),
-                    false => None,
+                if support_compute && support_transfer {
+                    Some(index)
+                } else {
+                    None
                 }
             })
             .nth(0)
@@ -505,13 +504,10 @@ fn ash_vulkan() -> VulkanState {
             .unwrap()
     };
 
-    let device_queue: Queue = unsafe { device.get_device_queue(queue_index, 0) };
-
     VulkanState {
         instance,
         physical_device: physical,
         device,
-        queue: device_queue,
         queue_family_index: queue_index,
     }
 }

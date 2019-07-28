@@ -8,5 +8,5 @@ layout(std430, binding = 0) buffer Data {
 
 void main() {
     uint idx = gl_GlobalInvocationID.x;
-    data[idx] = 2;
+    data[idx] *= 2.;
 }
