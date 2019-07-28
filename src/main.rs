@@ -1,5 +1,5 @@
 extern crate ash;
-extern crate csv;
+// extern crate csv;
 
 use std::convert::From;
 use std::ffi::{CStr, CString};
@@ -24,6 +24,7 @@ fn get_fract_s(date: Instant) -> String {
 fn main() {
     let vulkan = ash_vulkan();
     println!("[NFO] Vulkan initialized.");
+    println!("{:?}", vulkan.physical_device);
     let start = Instant::now();
 
     const buffer_capacity: u64 = 1024 * 1024 * 4;
@@ -567,6 +568,8 @@ fn ash_vulkan() -> VulkanState {
             .create_device(physical, &device_create_info_builder, None)
             .unwrap()
     };
+
+    println!("{:?}", physical);
 
     VulkanState {
         instance,
