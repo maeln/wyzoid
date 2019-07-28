@@ -11,13 +11,22 @@ use std::path::PathBuf;
 
 use ash::extensions::ext::DebugReport;
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
-use ash::vk::{self, PhysicalDevice, Queue};
+use ash::vk::{self, PhysicalDevice};
 use ash::{Device, Entry, Instance};
+
+use std::time::{Duration, Instant};
+
+fn get_fract_s(date: Instant) -> String {
+    let duration: Duration = date.elapsed();
+    format!("{}.{:0>3}", duration.as_secs(), duration.subsec_millis())
+}
 
 fn main() {
     let vulkan = ash_vulkan();
+    println!("[NFO] Vulkan initialized.");
+    let start = Instant::now();
 
-    let buffer_capacity = 1024;
+    const buffer_capacity: u64 = 1024 * 1024 * 32;
     let buffer_size: u64 = buffer_capacity * (std::mem::size_of::<f32>() as u64);
     let mem_props = unsafe {
         vulkan
@@ -63,17 +72,14 @@ fn main() {
             .map_memory(vulkan_mem, 0, buffer_size, mem_map_flags)
             .expect("[ERR] Could not map memory.")
     };
-    let mut vec_buff: Vec<f32> = unsafe {
-        Vec::from_raw_parts(
-            buffer as *mut f32,
-            buffer_capacity as usize,
-            buffer_capacity as usize,
-        )
-    };
+
+    let mut mt_buffer: *mut f32 = buffer as *mut f32;
     for i in 0..buffer_capacity {
-        vec_buff[i as usize] = i as f32;
+        unsafe {
+            *mt_buffer = i as f32;
+            mt_buffer = mt_buffer.offset(1)
+        }
     }
-    mem::forget(vec_buff);
 
     unsafe {
         vulkan.device.unmap_memory(vulkan_mem);
@@ -292,20 +298,45 @@ fn main() {
             .expect("[ERR] Error while waiting for queue to be idle.")
     };
 
+    let spent = get_fract_s(start);
+    println!("[NFO] Time taken: {} ms", spent);
+
+    let new_start = Instant::now();
+    let mut hello: Vec<f32> = Vec::with_capacity(buffer_capacity as usize);
+    for i in 0..buffer_capacity {
+        hello.push(f32::sqrt(i as f32));
+    }
+    let new_spent = get_fract_s(new_start);
+    println!("[NFO] Time taken: {} ms", new_spent);
+
+    /*
     unsafe {
-        let out_buffer = vulkan
+        let mut out_buffer: *mut f32 = vulkan
             .device
             .map_memory(vulkan_mem, 0, buffer_size, mem_map_flags)
-            .expect("[ERR] Could not map memory at output.");
-        let output: Vec<f32> = Vec::from_raw_parts(
-            out_buffer as *mut f32,
-            buffer_capacity as usize,
-            buffer_capacity as usize,
-        );
-        for item in &output {
-            print!("{} ", item);
+            .expect("[ERR] Could not map memory at output.")
+            as *mut f32;
+        for _ in 0..buffer_capacity {
+            print!("{} ", *out_buffer);
+            out_buffer = out_buffer.offset(1)
         }
-        mem::forget(output);
+    }
+    print!("\n");*/
+    // cleanup
+    unsafe {
+        vulkan
+            .device
+            .free_command_buffers(command_pool, &[command_buffer]);
+        vulkan.device.destroy_command_pool(command_pool, None);
+        vulkan.device.destroy_descriptor_pool(descriptor_pool, None);
+        vulkan.device.destroy_pipeline(compute_pipeline, None);
+        vulkan.device.destroy_pipeline_layout(pipeline_layout, None);
+        vulkan
+            .device
+            .destroy_descriptor_set_layout(descriptor_layout, None);
+        vulkan.device.destroy_shader_module(shader_module, None);
+        vulkan.device.destroy_buffer(buffer, None);
+        vulkan.device.free_memory(vulkan_mem, None);
     }
 }
 
@@ -318,6 +349,20 @@ struct VulkanState {
     physical_device: PhysicalDevice,
     device: Device,
     queue_family_index: u32,
+    debug_report_loader: ash::extensions::ext::DebugReport,
+    debug_callback: vk::DebugReportCallbackEXT,
+}
+
+impl Drop for VulkanState {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.device_wait_idle().unwrap();
+            self.device.destroy_device(None);
+            self.debug_report_loader
+                .destroy_debug_report_callback(self.debug_callback, None);
+            self.instance.destroy_instance(None);
+        }
+    }
 }
 
 fn load_file(file: &PathBuf) -> Option<Vec<u8>> {
@@ -394,7 +439,7 @@ fn ash_vulkan() -> VulkanState {
         .pfn_callback(Some(vulkan_debug_callback));
 
     let debug_report_loader = DebugReport::new(&entry, &instance);
-    let debug_call_back = unsafe {
+    let debug_callback = unsafe {
         debug_report_loader
             .create_debug_report_callback(&debug_info, None)
             .unwrap()
@@ -509,5 +554,7 @@ fn ash_vulkan() -> VulkanState {
         physical_device: physical,
         device,
         queue_family_index: queue_index,
+        debug_callback,
+        debug_report_loader,
     }
 }
