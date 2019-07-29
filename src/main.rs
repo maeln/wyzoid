@@ -18,16 +18,62 @@ use std::time::{Duration, Instant};
 
 fn get_fract_s(date: Instant) -> String {
     let duration: Duration = date.elapsed();
-    format!("{}.{:0>3}", duration.as_secs(), duration.subsec_millis())
+    let millis = duration.subsec_millis() as u64;
+    let sec = duration.as_secs();
+    let tot = sec * 1000 + millis;
+    format!("{}", tot)
+}
+
+fn doit(data: *mut f32) -> *mut f32 {
+    let mut addr = data;
+    unsafe {
+        let x = addr.read();
+        let y = addr.offset(1).read();
+        let z = addr.offset(2).read();
+        let w = addr.offset(3).read();
+        addr.write(x * 2.0);
+        addr = addr.offset(1);
+        addr.write(x * y);
+        addr = addr.offset(1);
+        addr.write(x + y);
+        addr = addr.offset(1);
+        addr.write(z - x);
+        addr = addr.offset(1);
+    }
+    addr
 }
 
 fn main() {
     let vulkan = ash_vulkan();
     println!("[NFO] Vulkan initialized.");
-    let start = Instant::now();
 
-    const buffer_capacity: u64 = 1920 * 1080 * 4;
+    let physical_device_props = unsafe {
+        vulkan
+            .instance
+            .get_physical_device_properties(vulkan.physical_device)
+    };
+
+    let physical_limits = physical_device_props.limits;
+    let work_group_count = physical_limits.max_compute_work_group_count;
+    let work_group_size = physical_limits.max_compute_work_group_size;
+    let work_group_invocation = physical_limits.max_compute_work_group_invocations;
+
+    println!(
+        "[NFO] Device max work group count: [{}, {}, {}]",
+        work_group_count[0], work_group_count[1], work_group_count[2]
+    );
+    println!(
+        "[NFO] Device max work group size: [{}, {}, {}]",
+        work_group_size[0], work_group_size[1], work_group_size[2]
+    );
+    println!(
+        "[NFO] Device max work group invocation: {}",
+        work_group_invocation
+    );
+
+    const buffer_capacity: u64 = 4096 * 4096;
     let buffer_size: u64 = buffer_capacity * (std::mem::size_of::<f32>() as u64);
+    let buff_start = Instant::now();
     let mem_props = unsafe {
         vulkan
             .instance
@@ -37,12 +83,21 @@ fn main() {
     let mut mem_index: Option<usize> = None;
     for i in 0..(mem_props.memory_type_count as usize) {
         let mem_type_props = mem_props.memory_types[i];
+        let buffer_max_size = mem_props.memory_heaps[mem_type_props.heap_index as usize].size;
+        println!(
+            "[NFO] Mem {} max heap size: {} Mio",
+            i,
+            buffer_max_size as f64 / 1024.0 / 1024.0
+        );
         if mem_type_props
             .property_flags
             .contains(vk::MemoryPropertyFlags::HOST_VISIBLE)
             && mem_type_props
                 .property_flags
                 .contains(vk::MemoryPropertyFlags::HOST_COHERENT)
+            && mem_type_props
+                .property_flags
+                .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
             && mem_props.memory_heaps[mem_type_props.heap_index as usize].size > buffer_size
         {
             mem_index = Some(i);
@@ -75,7 +130,7 @@ fn main() {
 
     for i in 0..buffer_capacity {
         unsafe {
-            *buffer = i as f32;
+            buffer.write(i as f32);
             buffer = buffer.offset(1)
         }
     }
@@ -106,6 +161,8 @@ fn main() {
             .bind_buffer_memory(buffer, vulkan_mem, 0)
             .expect("[ERR] Could not bind buffer memory")
     };
+    println!("[NFO] Mem: {} ms", get_fract_s(buff_start));
+    let shader_stuff = Instant::now();
 
     let shader_bytecode = to_vec32(
         load_file(&PathBuf::from("shaders/bin/double/double.cs.spriv"))
@@ -213,7 +270,8 @@ fn main() {
             .device
             .update_descriptor_sets(&[write_descriptor_set], &[])
     };
-
+    println!("[NFO] shd: {} ms", get_fract_s(shader_stuff));
+    let cmdstuff = Instant::now();
     let command_pool_create_info = vk::CommandPoolCreateInfo::builder()
         .queue_family_index(vulkan.queue_family_index)
         .build();
@@ -227,8 +285,7 @@ fn main() {
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
         .command_pool(command_pool)
         .command_buffer_count(1)
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .build();
+        .level(vk::CommandBufferLevel::PRIMARY);
     let command_buffer = unsafe {
         vulkan
             .device
@@ -236,9 +293,9 @@ fn main() {
             .expect("[ERR] Could not create command buffer")[0]
     };
 
-    let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-        .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-        .build();
+    let command_buffer_begin_info =
+        vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
     unsafe {
         vulkan
             .device
@@ -268,7 +325,7 @@ fn main() {
     unsafe {
         vulkan
             .device
-            .cmd_dispatch(command_buffer, buffer_capacity as u32, 1, 1);
+            .cmd_dispatch(command_buffer, buffer_capacity as u32 / 4 / 8, 1, 1);
     };
 
     unsafe {
@@ -278,15 +335,15 @@ fn main() {
             .expect("[ERR] Could not end command buffer.");
     };
 
+    let cmd_buffer = &[command_buffer];
     let queue = unsafe { vulkan.device.get_device_queue(vulkan.queue_family_index, 0) };
-    let submit_info = vk::SubmitInfo::builder()
-        .command_buffers(&[command_buffer])
-        .build();
-
+    let submit_info = vk::SubmitInfo::builder().command_buffers(cmd_buffer);
+    println!("[NFO] Cmd: {} ms", get_fract_s(cmdstuff));
+    let start = Instant::now();
     unsafe {
         vulkan
             .device
-            .queue_submit(queue, &[submit_info], vk::Fence::null())
+            .queue_submit(queue, &[submit_info.build()], vk::Fence::null())
             .expect("[ERR] Could not submit queue.")
     };
 
@@ -297,38 +354,42 @@ fn main() {
             .expect("[ERR] Error while waiting for queue to be idle.")
     };
 
-    let spent = get_fract_s(start);
-    println!("[NFO] Time taken: {} ms", spent);
-
+    println!("[NFO] Time taken: {} ms", get_fract_s(start));
     let new_start = Instant::now();
-    let mut hello: Vec<f32> = Vec::with_capacity(buffer_capacity as usize);
-    for i in 0..buffer_capacity {
+    let mut hello: Vec<f32> = Vec::with_capacity(buffer_size as usize);
+    for i in 0..buffer_size {
         hello.push(i as f32);
     }
-    for i in 0..((buffer_capacity / 4) as usize) - 4 {
-        let r = f32::sqrt(hello[(i + 0) * 4] * hello[(i + 3) * 4]);
-        let c = f32::sin(hello[(i + 1) * 4]);
-        hello[(i + 0) * 4] = r * c;
-        hello[(i + 1) * 4] = c;
-        hello[(i + 2) * 4] = 0.0;
-        hello[(i + 3) * 4] = 0.0;
+    let mut buf_ptr = hello.as_mut_ptr();
+    for _ in 0..(buffer_capacity as usize / 4) {
+        buf_ptr = doit(buf_ptr);
     }
     let new_spent = get_fract_s(new_start);
     println!("[NFO] Time taken: {} ms", new_spent);
 
-    /*
     unsafe {
         let mut out_buffer: *mut f32 = vulkan
             .device
             .map_memory(vulkan_mem, 0, buffer_size, mem_map_flags)
             .expect("[ERR] Could not map memory at output.")
             as *mut f32;
-        for _ in 0..buffer_capacity {
-            print!("{} ", *out_buffer);
-            out_buffer = out_buffer.offset(1)
+        let mut is_different = false;
+        let mut diff_count = 0;
+        for i in 0..buffer_capacity as usize {
+            if !(hello[i] == *out_buffer
+                || (hello[i] + 0.01 > *out_buffer && hello[i] - 0.01 < *out_buffer))
+            {
+                is_different = true;
+                diff_count += 1;
+                println!("DIFF[{}]: {} // {}", i, hello[i], *out_buffer);
+            }
+            if diff_count > 5 {
+                break;
+            }
+            out_buffer = out_buffer.offset(1);
         }
     }
-    print!("\n");*/
+    print!("\n");
     // cleanup
     unsafe {
         vulkan

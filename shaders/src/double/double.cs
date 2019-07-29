@@ -1,6 +1,6 @@
 #version 450
 
-layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+layout(local_size_x = 8, local_size_y = 1, local_size_z = 1) in;
 
 layout(std430, binding = 0) buffer Data { 
     vec4 data[]; 
@@ -8,7 +8,7 @@ layout(std430, binding = 0) buffer Data {
 
 void main() {
     uint idx = gl_GlobalInvocationID.x;
-    float r = sqrt(data.x * data.z);
-    float c = sin(data.y);
-    data[idx] = vec4(r*c, c, 0, 0);
+    vec4 orig = data[idx];
+    
+    data[idx] = vec4(orig.x*2.0, orig.x*orig.y, orig.x+orig.y, orig.z-orig.x);
 }
