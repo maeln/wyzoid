@@ -325,7 +325,7 @@ fn main() {
     unsafe {
         vulkan
             .device
-            .cmd_dispatch(command_buffer, buffer_capacity as u32 / 4 / 8, 1, 1);
+            .cmd_dispatch(command_buffer, buffer_capacity as u32 / 4 / 64, 1, 1);
     };
 
     unsafe {
