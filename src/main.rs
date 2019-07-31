@@ -1,11 +1,17 @@
 extern crate ash;
 // extern crate csv;
 
+mod utils;
+mod vkmem;
+mod vkpipeline;
+mod vkshader;
+mod vkstate;
+
+use utils::{cstr2string, get_fract_s, print_tick};
+
 use std::convert::From;
 use std::ffi::{CStr, CString};
-use std::fs;
 use std::io::{self, BufRead};
-use std::mem;
 use std::os::raw::{c_char, c_void};
 use std::path::PathBuf;
 
@@ -14,15 +20,7 @@ pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk::{self, PhysicalDevice};
 use ash::{Device, Entry, Instance};
 
-use std::time::{Duration, Instant};
-
-fn get_fract_s(date: Instant) -> String {
-    let duration: Duration = date.elapsed();
-    let millis = duration.subsec_millis() as u64;
-    let sec = duration.as_secs();
-    let tot = sec * 1000 + millis;
-    format!("{}", tot)
-}
+use std::time::Instant;
 
 fn doit(data: *mut f32) -> *mut f32 {
     let mut addr = data;
@@ -46,6 +44,11 @@ fn doit(data: *mut f32) -> *mut f32 {
 fn main() {
     let vulkan = ash_vulkan();
     println!("[NFO] Vulkan initialized.");
+
+    let mut hello: Vec<f32> = Vec::with_capacity(buffer_capacity as usize);
+    for i in 0..buffer_capacity {
+        hello.push(i as f32);
+    }
 
     let physical_device_props = unsafe {
         vulkan
@@ -74,163 +77,47 @@ fn main() {
     const buffer_capacity: u64 = 4096 * 4096;
     let buffer_size: u64 = buffer_capacity * (std::mem::size_of::<f32>() as u64);
     let buff_start = Instant::now();
-    let mem_props = unsafe {
-        vulkan
-            .instance
-            .get_physical_device_memory_properties(vulkan.physical_device)
-    };
 
-    let mut mem_index: Option<usize> = None;
-    for i in 0..(mem_props.memory_type_count as usize) {
-        let mem_type_props = mem_props.memory_types[i];
-        let buffer_max_size = mem_props.memory_heaps[mem_type_props.heap_index as usize].size;
-        println!(
-            "[NFO] Mem {} max heap size: {} Mio",
-            i,
-            buffer_max_size as f64 / 1024.0 / 1024.0
-        );
-        if mem_type_props
-            .property_flags
-            .contains(vk::MemoryPropertyFlags::HOST_VISIBLE)
-            && mem_type_props
-                .property_flags
-                .contains(vk::MemoryPropertyFlags::HOST_COHERENT)
-            && mem_type_props
-                .property_flags
-                .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
-            && mem_props.memory_heaps[mem_type_props.heap_index as usize].size > buffer_size
-        {
-            mem_index = Some(i);
-            break;
-        }
-    }
+    let vk_mem = vkmem::VkMem::find_mem(&vulkan, buffer_size);
 
-    if mem_index.is_none() {
+    if vk_mem.is_none() {
         panic!("[ERR] Could not find a memory type fitting our need.");
     }
 
-    let allocate_nfo = vk::MemoryAllocateInfo::builder()
-        .allocation_size(buffer_size)
-        .memory_type_index(mem_index.unwrap() as u32)
-        .build();
-    let vulkan_mem = unsafe {
-        vulkan
-            .device
-            .allocate_memory(&allocate_nfo, None)
-            .expect("[ERR] Could not allocate memory in device.")
-    };
+    let vk_mem = vk_mem.unwrap();
+    vk_mem.map_memory::<f32>(&hello, 0);
 
-    let mem_map_flags = vk::MemoryMapFlags::empty();
-    let mut buffer: *mut f32 = unsafe {
-        vulkan
-            .device
-            .map_memory(vulkan_mem, 0, buffer_size, mem_map_flags)
-            .expect("[ERR] Could not map memory.") as *mut f32
-    };
-
-    for i in 0..buffer_capacity {
-        unsafe {
-            buffer.write(i as f32);
-            buffer = buffer.offset(1)
-        }
-    }
-
-    unsafe {
-        vulkan.device.unmap_memory(vulkan_mem);
-    }
-
-    let buffer_create_info = vk::BufferCreateInfo::builder()
-        .size(buffer_size)
-        .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-        .sharing_mode(vk::SharingMode::EXCLUSIVE)
-        .queue_family_indices(&[vulkan.queue_family_index])
-        .build();
-
-    let buffer = unsafe {
-        vulkan
-            .device
-            .create_buffer(&buffer_create_info, None)
-            .unwrap()
-    };
-
-    let mem_requirement = unsafe { vulkan.device.get_buffer_memory_requirements(buffer) };
-
-    unsafe {
-        vulkan
-            .device
-            .bind_buffer_memory(buffer, vulkan_mem, 0)
-            .expect("[ERR] Could not bind buffer memory")
-    };
+    let vk_buffer = vkmem::VkBuffer::new(&vulkan, &vk_mem, buffer_size);
+    vk_buffer.bind();
     println!("[NFO] Mem: {} ms", get_fract_s(buff_start));
     let shader_stuff = Instant::now();
 
-    let shader_bytecode = to_vec32(
-        load_file(&PathBuf::from("shaders/bin/double/double.cs.spriv"))
-            .expect("[ERR] Could not load shader file."),
+    let mut shader = vkshader::VkShader::new(
+        &vulkan,
+        &PathBuf::from("shaders/bin/double/double.cs.spriv"),
+        CString::new("main").unwrap(),
     );
 
-    let shader_module_create_info = vk::ShaderModuleCreateInfo::builder()
-        .code(&shader_bytecode)
-        .build();
-    let shader_module = unsafe {
-        vulkan
-            .device
-            .create_shader_module(&shader_module_create_info, None)
-            .expect("[ERR] Could not create shader module.")
-    };
+    shader.add_layout_binding(
+        0,
+        1,
+        vk::DescriptorType::STORAGE_BUFFER,
+        vk::ShaderStageFlags::COMPUTE,
+    );
+    shader.create_pipeline_layout();
 
-    let descriptor_layout_binding_info = vk::DescriptorSetLayoutBinding::builder()
-        .binding(0)
-        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-        .descriptor_count(1)
-        .stage_flags(vk::ShaderStageFlags::COMPUTE)
-        .build();
-    let descriptor_layout_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-        .bindings(&[descriptor_layout_binding_info])
-        .build();
+    let compute_pipeline = vkpipeline::VkComputePipeline::new(&vulkan, &shader);
 
-    let descriptor_layout = unsafe {
-        vulkan
-            .device
-            .create_descriptor_set_layout(&descriptor_layout_create_info, None)
-            .expect("[ERR] Could not create Descriptor Layout.")
-    };
-
-    let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
-        .set_layouts(&[descriptor_layout])
-        .build();
-    let pipeline_layout = unsafe {
-        vulkan
-            .device
-            .create_pipeline_layout(&pipeline_layout_create_info, None)
-            .expect("[ERR] Could not create Pipeline Layout")
-    };
-
-    let entry_point = CString::new("main").unwrap();
-    let stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-        .module(shader_module)
-        .stage(vk::ShaderStageFlags::COMPUTE)
-        .name(&entry_point)
-        .build();
-    let compute_create_info = vk::ComputePipelineCreateInfo::builder()
-        .stage(stage_create_info)
-        .layout(pipeline_layout)
-        .build();
-
-    let compute_pipeline = unsafe {
-        vulkan
-            .device
-            .create_compute_pipelines(vk::PipelineCache::null(), &[compute_create_info], None)
-            .expect("[ERR] Could not create compute pipeline")[0]
-    };
+    let pp = shader.pipeline.unwrap();
 
     let descriptor_pool_size = vk::DescriptorPoolSize::builder()
         .descriptor_count(1)
         .ty(vk::DescriptorType::STORAGE_BUFFER)
         .build();
+    let pool_sizes = &[descriptor_pool_size];
     let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::builder()
         .max_sets(1)
-        .pool_sizes(&[descriptor_pool_size])
+        .pool_sizes(pool_sizes)
         .build();
 
     let descriptor_pool = unsafe {
@@ -242,7 +129,7 @@ fn main() {
 
     let descriptor_allocate = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(descriptor_pool)
-        .set_layouts(&[descriptor_layout])
+        .set_layouts(&shader.layout)
         .build();
 
     let descriptor_set = unsafe {
@@ -253,23 +140,20 @@ fn main() {
     };
 
     let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-        .buffer(buffer)
+        .buffer(vk_buffer.buffer)
         .offset(0)
-        .range(vk::WHOLE_SIZE)
-        .build();
+        .range(vk::WHOLE_SIZE);
+
+    let descriptors_infos = &[descriptor_buffer_info.build()];
     let write_descriptor_set = vk::WriteDescriptorSet::builder()
         .dst_set(descriptor_set)
         .dst_binding(0)
         .dst_array_element(0)
         .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-        .buffer_info(&[descriptor_buffer_info])
-        .build();
+        .buffer_info(descriptors_infos);
 
-    unsafe {
-        vulkan
-            .device
-            .update_descriptor_sets(&[write_descriptor_set], &[])
-    };
+    let descriptors_sets = &[write_descriptor_set.build()];
+    unsafe { vulkan.device.update_descriptor_sets(descriptors_sets, &[]) };
     println!("[NFO] shd: {} ms", get_fract_s(shader_stuff));
     let cmdstuff = Instant::now();
     let command_pool_create_info = vk::CommandPoolCreateInfo::builder()
@@ -307,7 +191,7 @@ fn main() {
         vulkan.device.cmd_bind_pipeline(
             command_buffer,
             vk::PipelineBindPoint::COMPUTE,
-            compute_pipeline,
+            compute_pipeline.pipeline,
         )
     };
 
@@ -315,7 +199,7 @@ fn main() {
         vulkan.device.cmd_bind_descriptor_sets(
             command_buffer,
             vk::PipelineBindPoint::COMPUTE,
-            pipeline_layout,
+            shader.pipeline.unwrap(),
             0,
             &[descriptor_set],
             &[],
@@ -356,10 +240,6 @@ fn main() {
 
     println!("[NFO] Time taken: {} ms", get_fract_s(start));
     let new_start = Instant::now();
-    let mut hello: Vec<f32> = Vec::with_capacity(buffer_size as usize);
-    for i in 0..buffer_size {
-        hello.push(i as f32);
-    }
     let mut buf_ptr = hello.as_mut_ptr();
     for _ in 0..(buffer_capacity as usize / 4) {
         buf_ptr = doit(buf_ptr);
@@ -370,16 +250,14 @@ fn main() {
     unsafe {
         let mut out_buffer: *mut f32 = vulkan
             .device
-            .map_memory(vulkan_mem, 0, buffer_size, mem_map_flags)
+            .map_memory(vk_mem.mem, 0, buffer_size, vk::MemoryMapFlags::empty())
             .expect("[ERR] Could not map memory at output.")
             as *mut f32;
-        let mut is_different = false;
         let mut diff_count = 0;
         for i in 0..buffer_capacity as usize {
             if !(hello[i] == *out_buffer
                 || (hello[i] + 0.01 > *out_buffer && hello[i] - 0.01 < *out_buffer))
             {
-                is_different = true;
                 diff_count += 1;
                 println!("DIFF[{}]: {} // {}", i, hello[i], *out_buffer);
             }
@@ -397,67 +275,7 @@ fn main() {
             .free_command_buffers(command_pool, &[command_buffer]);
         vulkan.device.destroy_command_pool(command_pool, None);
         vulkan.device.destroy_descriptor_pool(descriptor_pool, None);
-        vulkan.device.destroy_pipeline(compute_pipeline, None);
-        vulkan.device.destroy_pipeline_layout(pipeline_layout, None);
-        vulkan
-            .device
-            .destroy_descriptor_set_layout(descriptor_layout, None);
-        vulkan.device.destroy_shader_module(shader_module, None);
-        vulkan.device.destroy_buffer(buffer, None);
-        vulkan.device.free_memory(vulkan_mem, None);
     }
-}
-
-fn to_vec32(vecin: Vec<u8>) -> Vec<u32> {
-    unsafe { vecin.align_to::<u32>().1.to_vec() }
-}
-
-struct VulkanState {
-    entry: Entry,
-    instance: Instance,
-    physical_device: PhysicalDevice,
-    device: Device,
-    queue_family_index: u32,
-    debug_report_loader: ash::extensions::ext::DebugReport,
-    debug_callback: vk::DebugReportCallbackEXT,
-}
-
-impl Drop for VulkanState {
-    fn drop(&mut self) {
-        unsafe {
-            self.device.device_wait_idle().unwrap();
-            self.device.destroy_device(None);
-            self.debug_report_loader
-                .destroy_debug_report_callback(self.debug_callback, None);
-            self.instance.destroy_instance(None);
-        }
-    }
-}
-
-fn load_file(file: &PathBuf) -> Option<Vec<u8>> {
-    let contents = fs::read(file);
-    match contents {
-        Ok(file_str) => Some(file_str),
-        Err(err) => {
-            eprintln!("[ERR] Impossible to read file {} : {}", file.display(), err);
-
-            None
-        }
-    }
-}
-
-fn print_tick(val: bool) {
-    if val {
-        println!("✅");
-    } else {
-        println!("❌");
-    }
-}
-
-fn cstr2string(mut cstr: Vec<i8>) -> String {
-    let string = unsafe { CString::from_raw(cstr.as_mut_ptr()) };
-    mem::forget(cstr);
-    String::from(string.to_string_lossy())
 }
 
 fn extension_names() -> Vec<*const i8> {
@@ -478,7 +296,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     vk::FALSE
 }
 
-fn ash_vulkan() -> VulkanState {
+fn ash_vulkan() -> vkstate::VulkanState {
     let layer_names = [CString::new("VK_LAYER_LUNARG_standard_validation").unwrap()];
     let layers_names_raw: Vec<*const i8> = layer_names
         .iter()
@@ -618,7 +436,7 @@ fn ash_vulkan() -> VulkanState {
             .unwrap()
     };
 
-    VulkanState {
+    vkstate::VulkanState {
         entry,
         instance,
         physical_device: physical,

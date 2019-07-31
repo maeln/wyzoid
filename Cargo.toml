@@ -11,7 +11,7 @@ repository = "https://github.com/maeln/wyzoid"
 [profile.release]
 opt-level = 3
 debug = true
-# lto = true
+lto = true
 
 [dependencies]
 # csv = "1.1.1"
