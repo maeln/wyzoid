@@ -1,7 +1,6 @@
-use ash::vk::DeviceMemory;
-
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk;
+use ash::vk::DeviceMemory;
 
 use crate::vkstate::VulkanState;
 
@@ -126,18 +125,15 @@ impl<'a> VkMem<'a> {
 
     pub fn map_memory<T: Clone>(&self, data: &Vec<T>, offset: u64) {
         let size = (data.len() * std::mem::size_of::<T>()) as u64;
-        let mut buffer: *mut T = unsafe {
+        let buffer: *mut T = unsafe {
             self.state
                 .device
                 .map_memory(self.mem, offset, size, vk::MemoryMapFlags::empty())
                 .expect("[ERR] Could not map memory.") as *mut T
         };
 
-        for item in data {
-            unsafe {
-                buffer.write(item.clone());
-                buffer = buffer.offset(1)
-            }
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), buffer, data.len());
         }
 
         unsafe {
