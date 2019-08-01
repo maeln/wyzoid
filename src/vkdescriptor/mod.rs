@@ -1,0 +1,124 @@
+use crate::vkshader::VkShader;
+use crate::vkstate::VulkanState;
+
+use crate::ash::version::DeviceV1_0;
+use ash::vk;
+
+pub struct VkDescriptor<'a> {
+    pub pool_sizes: Vec<vk::DescriptorPoolSize>,
+    pub pool: Option<vk::DescriptorPool>,
+    pub set: Vec<vk::DescriptorSet>,
+    state: &'a VulkanState,
+    shader: &'a VkShader<'a>,
+}
+
+impl<'a> VkDescriptor<'a> {
+    pub fn new(state: &'a VulkanState, shader: &'a VkShader<'a>) -> Self {
+        VkDescriptor {
+            pool_sizes: Vec::new(),
+            pool: None,
+            set: Vec::new(),
+            state,
+            shader,
+        }
+    }
+
+    pub fn add_pool_size(&mut self, count: u32, descriptor_type: vk::DescriptorType) {
+        let descriptor_pool_size = vk::DescriptorPoolSize::builder()
+            .descriptor_count(count)
+            .ty(descriptor_type);
+        self.pool_sizes.push(descriptor_pool_size.build());
+    }
+
+    pub fn create_pool(&mut self, max_sets: u32) {
+        let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::builder()
+            .max_sets(max_sets)
+            .pool_sizes(&self.pool_sizes);
+        let descriptor_pool = unsafe {
+            self.state
+                .device
+                .create_descriptor_pool(&descriptor_pool_create_info, None)
+                .expect("[ERR] Could not create descriptor pool.")
+        };
+        self.pool = Some(descriptor_pool);
+    }
+
+    pub fn create_set(&mut self) {
+        let descriptor_allocate = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(self.pool.unwrap())
+            .set_layouts(&self.shader.layout);
+
+        let mut descriptor_set = unsafe {
+            self.state
+                .device
+                .allocate_descriptor_sets(&descriptor_allocate)
+                .expect("[ERR] Could not create descriptor set.")
+        };
+
+        self.set.append(&mut descriptor_set);
+    }
+
+    pub fn get_first_set(&self) -> Option<&vk::DescriptorSet> {
+        self.set.first()
+    }
+}
+
+impl<'a> Drop for VkDescriptor<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(pool) = self.pool {
+                self.state.device.destroy_descriptor_pool(pool, None);
+            }
+        }
+    }
+}
+
+pub struct VkWriteDescriptor<'a> {
+    pub buffer_descriptors: Vec<vk::DescriptorBufferInfo>,
+    pub write_descriptors: Vec<vk::WriteDescriptorSet>,
+    state: &'a VulkanState,
+}
+
+impl<'a> VkWriteDescriptor<'a> {
+    pub fn new(state: &'a VulkanState) -> Self {
+        VkWriteDescriptor {
+            buffer_descriptors: Vec::new(),
+            write_descriptors: Vec::new(),
+            state,
+        }
+    }
+
+    pub fn add_buffer(&mut self, buffer: vk::Buffer, offset: u64, range: u64) {
+        let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+            .buffer(buffer)
+            .offset(offset)
+            .range(range);
+
+        self.buffer_descriptors.push(descriptor_buffer_info.build());
+    }
+
+    pub fn add_write_descriptors(
+        &mut self,
+        descriptor_set: vk::DescriptorSet,
+        descriptor_type: vk::DescriptorType,
+        dst_binding: u32,
+        dst_array: u32,
+    ) {
+        let write_descriptor_set = vk::WriteDescriptorSet::builder()
+            .dst_set(descriptor_set)
+            .dst_binding(dst_binding)
+            .dst_array_element(dst_array)
+            .descriptor_type(descriptor_type)
+            .buffer_info(&self.buffer_descriptors);
+
+        self.write_descriptors.push(write_descriptor_set.build());
+    }
+
+    pub fn update_descriptors_sets(&self) {
+        unsafe {
+            self.state
+                .device
+                .update_descriptor_sets(&self.write_descriptors, &[])
+        };
+    }
+}

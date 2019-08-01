@@ -2,6 +2,7 @@ extern crate ash;
 // extern crate csv;
 
 mod utils;
+mod vkdescriptor;
 mod vkmem;
 mod vkpipeline;
 mod vkshader;
@@ -28,7 +29,6 @@ fn doit(data: *mut f32) -> *mut f32 {
         let x = addr.read();
         let y = addr.offset(1).read();
         let z = addr.offset(2).read();
-        let w = addr.offset(3).read();
         addr.write(x * 2.0);
         addr = addr.offset(1);
         addr.write(x * y);
@@ -41,12 +41,13 @@ fn doit(data: *mut f32) -> *mut f32 {
     addr
 }
 
+const BUFFER_CAPACITY: u64 = 4096 * 4096;
+
 fn main() {
     let vulkan = ash_vulkan();
     println!("[NFO] Vulkan initialized.");
-
-    let mut hello: Vec<f32> = Vec::with_capacity(buffer_capacity as usize);
-    for i in 0..buffer_capacity {
+    let mut hello: Vec<f32> = Vec::with_capacity(BUFFER_CAPACITY as usize);
+    for i in 0..BUFFER_CAPACITY {
         hello.push(i as f32);
     }
 
@@ -74,8 +75,7 @@ fn main() {
         work_group_invocation
     );
 
-    const buffer_capacity: u64 = 4096 * 4096;
-    let buffer_size: u64 = buffer_capacity * (std::mem::size_of::<f32>() as u64);
+    let buffer_size: u64 = BUFFER_CAPACITY * (std::mem::size_of::<f32>() as u64);
     let buff_start = Instant::now();
 
     let vk_mem = vkmem::VkMem::find_mem(&vulkan, buffer_size);
@@ -108,52 +108,21 @@ fn main() {
 
     let compute_pipeline = vkpipeline::VkComputePipeline::new(&vulkan, &shader);
 
-    let pp = shader.pipeline.unwrap();
+    let mut descriptor = vkdescriptor::VkDescriptor::new(&vulkan, &shader);
+    descriptor.add_pool_size(1, vk::DescriptorType::STORAGE_BUFFER);
+    descriptor.create_pool(1);
+    descriptor.create_set();
 
-    let descriptor_pool_size = vk::DescriptorPoolSize::builder()
-        .descriptor_count(1)
-        .ty(vk::DescriptorType::STORAGE_BUFFER)
-        .build();
-    let pool_sizes = &[descriptor_pool_size];
-    let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo::builder()
-        .max_sets(1)
-        .pool_sizes(pool_sizes)
-        .build();
+    let mut write_descriptor_set = vkdescriptor::VkWriteDescriptor::new(&vulkan);
+    write_descriptor_set.add_buffer(vk_buffer.buffer, 0, vk::WHOLE_SIZE);
+    write_descriptor_set.add_write_descriptors(
+        *descriptor.get_first_set().unwrap(),
+        vk::DescriptorType::STORAGE_BUFFER,
+        0,
+        0,
+    );
+    write_descriptor_set.update_descriptors_sets();
 
-    let descriptor_pool = unsafe {
-        vulkan
-            .device
-            .create_descriptor_pool(&descriptor_pool_create_info, None)
-            .expect("[ERR] Could not create descriptor pool.")
-    };
-
-    let descriptor_allocate = vk::DescriptorSetAllocateInfo::builder()
-        .descriptor_pool(descriptor_pool)
-        .set_layouts(&shader.layout)
-        .build();
-
-    let descriptor_set = unsafe {
-        vulkan
-            .device
-            .allocate_descriptor_sets(&descriptor_allocate)
-            .expect("[ERR] Could not create descriptor set.")[0]
-    };
-
-    let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-        .buffer(vk_buffer.buffer)
-        .offset(0)
-        .range(vk::WHOLE_SIZE);
-
-    let descriptors_infos = &[descriptor_buffer_info.build()];
-    let write_descriptor_set = vk::WriteDescriptorSet::builder()
-        .dst_set(descriptor_set)
-        .dst_binding(0)
-        .dst_array_element(0)
-        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-        .buffer_info(descriptors_infos);
-
-    let descriptors_sets = &[write_descriptor_set.build()];
-    unsafe { vulkan.device.update_descriptor_sets(descriptors_sets, &[]) };
     println!("[NFO] shd: {} ms", get_fract_s(shader_stuff));
     let cmdstuff = Instant::now();
     let command_pool_create_info = vk::CommandPoolCreateInfo::builder()
@@ -201,7 +170,7 @@ fn main() {
             vk::PipelineBindPoint::COMPUTE,
             shader.pipeline.unwrap(),
             0,
-            &[descriptor_set],
+            &[descriptor.set[0]],
             &[],
         )
     };
@@ -209,7 +178,7 @@ fn main() {
     unsafe {
         vulkan
             .device
-            .cmd_dispatch(command_buffer, buffer_capacity as u32 / 4 / 64, 1, 1);
+            .cmd_dispatch(command_buffer, BUFFER_CAPACITY as u32 / 4 / 64, 1, 1);
     };
 
     unsafe {
@@ -241,7 +210,7 @@ fn main() {
     println!("[NFO] Time taken: {} ms", get_fract_s(start));
     let new_start = Instant::now();
     let mut buf_ptr = hello.as_mut_ptr();
-    for _ in 0..(buffer_capacity as usize / 4) {
+    for _ in 0..(BUFFER_CAPACITY as usize / 4) {
         buf_ptr = doit(buf_ptr);
     }
     let new_spent = get_fract_s(new_start);
@@ -254,7 +223,7 @@ fn main() {
             .expect("[ERR] Could not map memory at output.")
             as *mut f32;
         let mut diff_count = 0;
-        for i in 0..buffer_capacity as usize {
+        for i in 0..BUFFER_CAPACITY as usize {
             if !(hello[i] == *out_buffer
                 || (hello[i] + 0.01 > *out_buffer && hello[i] - 0.01 < *out_buffer))
             {
@@ -274,7 +243,6 @@ fn main() {
             .device
             .free_command_buffers(command_pool, &[command_buffer]);
         vulkan.device.destroy_command_pool(command_pool, None);
-        vulkan.device.destroy_descriptor_pool(descriptor_pool, None);
     }
 }
 
