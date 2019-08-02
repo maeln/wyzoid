@@ -73,7 +73,6 @@ impl<'a> VkMem<'a> {
                 .instance
                 .get_physical_device_memory_properties(vkstate.physical_device)
         };
-
         let mut mem_index: Option<u32> = None;
         for i in 0..mem_props.memory_type_count {
             let mem_type_props = mem_props.memory_types[i as usize];
@@ -89,9 +88,6 @@ impl<'a> VkMem<'a> {
                 && mem_type_props
                     .property_flags
                     .contains(vk::MemoryPropertyFlags::HOST_COHERENT)
-                && mem_type_props
-                    .property_flags
-                    .contains(vk::MemoryPropertyFlags::DEVICE_LOCAL)
                 && mem_props.memory_heaps[mem_type_props.heap_index as usize].size > size
             {
                 mem_index = Some(i);

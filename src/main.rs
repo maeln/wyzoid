@@ -23,19 +23,49 @@ use ash::{Device, Entry, Instance};
 
 use std::time::Instant;
 
-fn doit(data: *mut f32) -> *mut f32 {
+/*
+vec4 process(vec4 data, float id) {
+  vec4 o = vec4(0);
+  for (float i = 0; i < 64.0; i += 1.0) {
+    o += (data * i) / (id + 1.0);
+    o *= sin(i / 100.0);
+  }
+
+  return o;
+}
+
+*/
+
+fn process(x: f32, y: f32, z: f32, w: f32, id: f32) -> (f32, f32, f32, f32) {
+    let mut o: (f32, f32, f32, f32) = (0.0, 0.0, 0.0, 0.0);
+    for i in 0..64 {
+        let f = i as f32;
+        let b = (x * f, y * f, z * f, w * f);
+        let t = id + 1.0;
+        let p = (b.0 / t, b.1 / t, b.2 / t, b.3 / t);
+        let v = f32::sin(f / 100.0);
+        o = (o.0 + p.0, o.1 + p.1, o.2 + p.2, o.3 + p.3);
+        o = (o.0 * v, o.1 * v, o.2 * v, o.3 * v);
+    }
+
+    o
+}
+
+fn doit(data: *mut f32, id: f32) -> *mut f32 {
     let mut addr = data;
     unsafe {
         let x = addr.read();
         let y = addr.offset(1).read();
         let z = addr.offset(2).read();
-        addr.write(x * 2.0);
+        let w = addr.offset(3).read();
+        let res = process(x, y, z, w, id);
+        addr.write(res.0);
         addr = addr.offset(1);
-        addr.write(x * y);
+        addr.write(res.1);
         addr = addr.offset(1);
-        addr.write(x + y);
+        addr.write(res.2);
         addr = addr.offset(1);
-        addr.write(z - x);
+        addr.write(res.3);
         addr = addr.offset(1);
     }
     addr
@@ -210,8 +240,8 @@ fn main() {
     println!("[NFO] Time taken: {} ms", get_fract_s(start));
     let new_start = Instant::now();
     let mut buf_ptr = hello.as_mut_ptr();
-    for _ in 0..(BUFFER_CAPACITY as usize / 4) {
-        buf_ptr = doit(buf_ptr);
+    for i in 0..(BUFFER_CAPACITY as usize / 4) {
+        buf_ptr = doit(buf_ptr, i as f32);
     }
     let new_spent = get_fract_s(new_start);
     println!("[NFO] Time taken: {} ms", new_spent);
