@@ -4,7 +4,7 @@ use std::ffi::CString;
 use std::path::PathBuf;
 
 use crate::utils::{load_file, to_vec32};
-use crate::vkstate::VulkanState;
+use crate::low::vkstate::VulkanState;
 
 pub struct VkShader<'a> {
     pub bytecode: Vec<u32>,

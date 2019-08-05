@@ -2,7 +2,7 @@ pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk;
 use ash::vk::DeviceMemory;
 
-use crate::vkstate::VulkanState;
+use crate::low::vkstate::VulkanState;
 
 pub struct VkMem<'a> {
     pub size: u64,
@@ -119,7 +119,7 @@ impl<'a> VkMem<'a> {
         Some(mem_struct)
     }
 
-    pub fn map_memory<T: Clone>(&self, data: &Vec<T>, offset: u64) {
+    pub fn map_memory<T>(&self, data: &Vec<T>, offset: u64) {
         let size = (data.len() * std::mem::size_of::<T>()) as u64;
         let buffer: *mut T = unsafe {
             self.state
@@ -137,7 +137,7 @@ impl<'a> VkMem<'a> {
         }
     }
 
-    pub fn get_memory<T: Clone>(&self, capacity: usize, offset: u64) -> Vec<T> {
+    pub fn get_memory<T>(&self, capacity: usize, offset: u64) -> Vec<T> {
         let mut output: Vec<T> = Vec::with_capacity(capacity);
         let size = (capacity * std::mem::size_of::<T>()) as u64;
         let buffer: *mut T = unsafe {

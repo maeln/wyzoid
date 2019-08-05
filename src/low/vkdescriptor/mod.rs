@@ -1,5 +1,5 @@
-use crate::vkshader::VkShader;
-use crate::vkstate::VulkanState;
+use crate::low::vkshader::VkShader;
+use crate::low::vkstate::VulkanState;
 
 use crate::ash::version::DeviceV1_0;
 use ash::vk;

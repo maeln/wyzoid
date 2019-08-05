@@ -1,6 +1,6 @@
 use std::ffi::CString;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub fn to_vec32(vecin: Vec<u8>) -> Vec<u32> {
     unsafe { vecin.align_to::<u32>().1.to_vec() }
@@ -32,10 +32,9 @@ pub fn cstr2string(mut cstr: Vec<i8>) -> String {
     String::from(string.to_string_lossy())
 }
 
-pub fn get_fract_s(date: Instant) -> String {
-    let duration: Duration = date.elapsed();
-    let millis = duration.subsec_millis() as u64;
-    let sec = duration.as_secs();
+pub fn get_fract_s(date: Duration) -> String {
+    let millis = date.subsec_millis() as u64;
+    let sec = date.as_secs();
     let tot = sec * 1000 + millis;
     format!("{}", tot)
 }
