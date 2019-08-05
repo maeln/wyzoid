@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use std::ffi::CString;
-use std::time::{Instant, Duration};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 pub fn to_vec32(vecin: Vec<u8>) -> Vec<u32> {
     unsafe { vecin.align_to::<u32>().1.to_vec() }
@@ -38,4 +38,9 @@ pub fn get_fract_s(date: Instant) -> String {
     let sec = duration.as_secs();
     let tot = sec * 1000 + millis;
     format!("{}", tot)
+}
+
+// Bad f32 comparison with a epsilon
+pub fn f32_cmp(a: f32, b: f32, epsilon: f32) -> bool {
+    (a + epsilon) > b && b > (a - epsilon)
 }

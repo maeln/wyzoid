@@ -136,6 +136,27 @@ impl<'a> VkMem<'a> {
             self.state.device.unmap_memory(self.mem);
         }
     }
+
+    pub fn get_memory<T: Clone>(&self, capacity: usize, offset: u64) -> Vec<T> {
+        let mut output: Vec<T> = Vec::with_capacity(capacity);
+        let size = (capacity * std::mem::size_of::<T>()) as u64;
+        let buffer: *mut T = unsafe {
+            self.state
+                .device
+                .map_memory(self.mem, offset, size, vk::MemoryMapFlags::empty())
+                .expect("[ERR] Could not map memory.") as *mut T
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(buffer, output.as_mut_ptr(), capacity);
+            output.set_len(capacity);
+        }
+
+        unsafe {
+            self.state.device.unmap_memory(self.mem);
+        }
+        output
+    }
 }
 
 impl<'a> Drop for VkMem<'a> {
