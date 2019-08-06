@@ -48,15 +48,15 @@ pub fn one_shot_job<T>(
     // Memory init.
     let buffer_size: u64 = (input.len() * std::mem::size_of::<T>()) as u64;
     let mem_t = Instant::now();
-    let vk_mem = vkmem::VkMem::find_mem(&vulkan, buffer_size);
+    let vk_buffer = vkmem::VkBuffer::new(&vulkan, buffer_size);
+    let vk_mem = vkmem::VkMem::find_mem(&vulkan, vk_buffer.get_buffer_memory_requirements());
     if vk_mem.is_none() {
         panic!("[ERR] Could not find a memory type fitting our need.");
     }
 
     let vk_mem = vk_mem.unwrap();
+    vk_mem.bind(vk_buffer.buffer, 0);
     vk_mem.map_memory(input, 0);
-    let vk_buffer = vkmem::VkBuffer::new(&vulkan, &vk_mem, buffer_size);
-    vk_buffer.bind();
     let mem_d = mem_t.elapsed();
 
     // Shader init.
