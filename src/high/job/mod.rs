@@ -117,15 +117,19 @@ pub fn mutli_shader<T: Clone>(
     for write_descriptor_set in shad_desc_set.iter_mut() {
         println!("11");
 
-        write_descriptor_set.add_buffer(b1, vk_buffer.offset, vk_buffer.size);
-        write_descriptor_set.add_buffer(b2, vk_buffer2.offset, vk_buffer2.size);
+        write_descriptor_set.add_buffer(b1, 0, vk_buffer.size);
+        write_descriptor_set.add_buffer(b2, 0, vk_buffer2.size);
         println!("b1/2: {:?} {:?}", b1, b2);
         let desc_set: vk::DescriptorSet = *shad_desc_vec[n].get_first_set().unwrap();
         println!("ptr: {:?}", shad_desc_vec[0].set[0]);
+        let mut bf1 = Vec::new();
+        let mut bf2 = Vec::new();
+        bf1.push(write_descriptor_set.buffer_descriptors[0]);
+        bf2.push(write_descriptor_set.buffer_descriptors[1]);
         write_descriptor_set.add_write_descriptors(
             desc_set,
             vk::DescriptorType::STORAGE_BUFFER,
-            write_descriptor_set.buffer_descriptors[0],
+            &bf1,
             0,
             0,
         );
@@ -135,7 +139,7 @@ pub fn mutli_shader<T: Clone>(
         write_descriptor_set.add_write_descriptors(
             desc_set,
             vk::DescriptorType::STORAGE_BUFFER,
-            write_descriptor_set.buffer_descriptors[1],
+            &bf2,
             1,
             0,
         );
@@ -256,7 +260,7 @@ pub fn one_shot_job<T>(
     write_descriptor_set.add_write_descriptors(
         *descriptor.get_first_set().unwrap(),
         vk::DescriptorType::STORAGE_BUFFER,
-        write_descriptor_set.buffer_descriptors[0],
+        &[write_descriptor_set.buffer_descriptors[0]],
         0,
         0,
     );

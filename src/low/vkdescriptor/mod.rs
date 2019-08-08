@@ -102,7 +102,7 @@ impl<'a> VkWriteDescriptor<'a> {
         &mut self,
         descriptor_set: vk::DescriptorSet,
         descriptor_type: vk::DescriptorType,
-        buffer_info: vk::DescriptorBufferInfo,
+        buffer_info: &[vk::DescriptorBufferInfo],
         dst_binding: u32,
         dst_array: u32,
     ) {
@@ -111,7 +111,7 @@ impl<'a> VkWriteDescriptor<'a> {
             .dst_binding(dst_binding)
             .dst_array_element(dst_array)
             .descriptor_type(descriptor_type)
-            .buffer_info(&[buffer_info])
+            .buffer_info(buffer_info)
             .build();
         println!("set: {}", write_descriptor_set.descriptor_count);
         unsafe {

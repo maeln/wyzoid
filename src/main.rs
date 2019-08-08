@@ -126,6 +126,6 @@ fn main() {
 
     println!("((((((((((())))))))))))");
     for i in 0..64 {
-        println!("p1: {}, p2: {}", shader_output[i], shader_output[i + 32]);
+        println!("p1: {}, p2: {}", shader_output[i], shader_output[i + 64]);
     }
 }
