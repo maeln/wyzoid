@@ -1,3 +1,4 @@
+use rand::{thread_rng, Rng};
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -42,4 +43,18 @@ pub fn get_fract_s(date: Duration) -> String {
 // Bad f32 comparison with a epsilon
 pub fn f32_cmp(a: f32, b: f32, epsilon: f32) -> bool {
     (a + epsilon) > b && b > (a - epsilon)
+}
+
+pub fn rand_vec<T>(len: usize, low: T, high: T) -> Vec<T>
+where
+    T: rand::distributions::uniform::SampleUniform + Copy,
+{
+    let mut rng = rand::thread_rng();
+    let mut output: Vec<T> = Vec::with_capacity(len);
+
+    for i in 0..len {
+        output.push(rng.gen_range(low, high))
+    }
+
+    output
 }
