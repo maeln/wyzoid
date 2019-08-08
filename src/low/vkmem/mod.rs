@@ -8,6 +8,7 @@ pub struct VkMem<'a> {
     pub size: u64,
     pub index: u32,
     pub mem: DeviceMemory,
+
     state: &'a VulkanState,
 }
 
@@ -51,6 +52,21 @@ impl<'a> VkBuffer<'a> {
                 .get_buffer_memory_requirements(self.buffer)
         }
     }
+
+    pub fn bind(&mut self, mem: DeviceMemory, offset: u64) {
+        self.offset = offset;
+        unsafe {
+            self.state
+                .device
+                .bind_buffer_memory(self.buffer, mem, offset)
+                .expect("[ERR] Could not bind buffer memory")
+        };
+    }
+
+    pub fn buffer_info(&self) {
+        let req = self.get_buffer_memory_requirements();
+        print!("size: {}; offset: {}; alignement: {};", self.size, self.offset, req.alignment);
+    }
 }
 
 // let mem_requirement = unsafe { vulkan.device.get_buffer_memory_requirements(buffer) };
@@ -64,7 +80,10 @@ impl<'a> Drop for VkBuffer<'a> {
 }
 
 impl<'a> VkMem<'a> {
-    pub fn find_mem(vkstate: &'a VulkanState, requirements: vk::MemoryRequirements) -> Option<Self> {
+    pub fn find_mem(
+        vkstate: &'a VulkanState,
+        size: u64,
+    ) -> Option<Self> {
         let mem_props = unsafe {
             vkstate
                 .instance
@@ -85,7 +104,8 @@ impl<'a> VkMem<'a> {
                 && mem_type_props
                     .property_flags
                     .contains(vk::MemoryPropertyFlags::HOST_COHERENT)
-                && mem_props.memory_heaps[mem_type_props.heap_index as usize].size > requirements.size
+                && mem_props.memory_heaps[mem_type_props.heap_index as usize].size
+                    > size
             {
                 mem_index = Some(i);
             }
@@ -97,7 +117,7 @@ impl<'a> VkMem<'a> {
 
         let mem_index = mem_index.unwrap();
         let allocate_nfo = vk::MemoryAllocateInfo::builder()
-            .allocation_size(requirements.size)
+            .allocation_size(size)
             .memory_type_index(mem_index)
             .build();
         let vulkan_mem = unsafe {
@@ -108,7 +128,7 @@ impl<'a> VkMem<'a> {
         };
 
         let mem_struct: VkMem<'a> = VkMem {
-            size: requirements.size,
+            size: size,
             index: mem_index,
             mem: vulkan_mem,
             state: vkstate,
@@ -153,15 +173,6 @@ impl<'a> VkMem<'a> {
             self.state.device.unmap_memory(self.mem);
         }
         output
-    }
-
-    pub fn bind(&self, buffer: vk::Buffer, offset: u64) {
-        unsafe {
-            self.state
-                .device
-                .bind_buffer_memory(buffer, self.mem, offset)
-                .expect("[ERR] Could not bind buffer memory")
-        };
     }
 }
 

@@ -35,6 +35,179 @@ impl fmt::Display for Timings {
     }
 }
 
+pub fn mutli_shader<T: Clone>(
+    input1: &Vec<T>,
+    input2: &Vec<T>,
+    shaders: &[PathBuf],
+    dispatch: &[(u32, u32, u32)],
+) -> Vec<T> {
+    // Vulkan init.
+    let vulkan = vkstate::init_vulkan();
+    vkstate::print_work_limits(&vulkan);
+
+    // Memory init.
+    let buffer1_size: u64 = (input1.len() * std::mem::size_of::<T>()) as u64;
+    let buffer2_size: u64 = (input2.len() * std::mem::size_of::<T>()) as u64;
+    let mut vk_buffer = vkmem::VkBuffer::new(&vulkan, buffer1_size);
+    let mut vk_buffer2 = vkmem::VkBuffer::new(&vulkan, buffer2_size);
+    print!("Buf1:");
+    vk_buffer.buffer_info();
+    print!("\n");
+
+    print!("Buf2:");
+    vk_buffer2.buffer_info();
+    print!("\n");
+
+    let vk_mem = vkmem::VkMem::find_mem(&vulkan, buffer1_size + buffer2_size);
+    if vk_mem.is_none() {
+        panic!("[ERR] Could not find a memory type fitting our need.");
+    }
+
+    let vk_mem = vk_mem.unwrap();
+    vk_buffer.bind(vk_mem.mem, 0);
+    vk_buffer2.bind(vk_mem.mem, buffer1_size);
+    let mut input = Vec::from(input1.as_slice());
+    let mut i2 = input2.clone();
+    input.append(&mut i2);
+    vk_mem.map_memory(&input, 0);
+    let b1 = vk_buffer.buffer;
+    let b2 = vk_buffer2.buffer;
+    println!("b1/2: {:?} {:?}", b1, b2);
+
+    let mut shad_vec: Vec<vkshader::VkShader> = Vec::with_capacity(shaders.len());
+    let mut shad_pip_vec: Vec<vkpipeline::VkComputePipeline> = Vec::with_capacity(shaders.len());
+    let mut shad_pipeline_layout: Vec<vk::PipelineLayout> = Vec::with_capacity(shaders.len());
+    let mut shad_desc_vec: Vec<vkdescriptor::VkDescriptor> = Vec::with_capacity(shaders.len());
+    let mut shad_desc_set: Vec<vkdescriptor::VkWriteDescriptor> = Vec::with_capacity(shaders.len());
+    for path in shaders {
+        shad_vec.push(vkshader::VkShader::new(
+            &vulkan,
+            path,
+            CString::new("main").unwrap(),
+        ));
+    }
+
+    for shader in shad_vec.iter_mut() {
+        shader.add_layout_binding(
+            0,
+            1,
+            vk::DescriptorType::STORAGE_BUFFER,
+            vk::ShaderStageFlags::COMPUTE,
+        );
+        shader.add_layout_binding(
+            1,
+            1,
+            vk::DescriptorType::STORAGE_BUFFER,
+            vk::ShaderStageFlags::COMPUTE,
+        );
+        shader.create_pipeline_layout();
+        shad_pipeline_layout.push(shader.pipeline.unwrap());
+        shad_pip_vec.push(vkpipeline::VkComputePipeline::new(&vulkan, shader));
+        shad_desc_vec.push(vkdescriptor::VkDescriptor::new(&vulkan, shader));
+        shad_desc_set.push(vkdescriptor::VkWriteDescriptor::new(&vulkan));
+    }
+
+    for descriptor in shad_desc_vec.iter_mut() {
+        descriptor.add_pool_size(2, vk::DescriptorType::STORAGE_BUFFER);
+        descriptor.create_pool(1);
+        descriptor.create_set();
+    }
+
+    let mut n = 0;
+    for write_descriptor_set in shad_desc_set.iter_mut() {
+        println!("11");
+
+        write_descriptor_set.add_buffer(b1, vk_buffer.offset, vk_buffer.size);
+        write_descriptor_set.add_buffer(b2, vk_buffer2.offset, vk_buffer2.size);
+        println!("b1/2: {:?} {:?}", b1, b2);
+        let desc_set: vk::DescriptorSet = *shad_desc_vec[n].get_first_set().unwrap();
+        println!("ptr: {:?}", shad_desc_vec[0].set[0]);
+        write_descriptor_set.add_write_descriptors(
+            desc_set,
+            vk::DescriptorType::STORAGE_BUFFER,
+            write_descriptor_set.buffer_descriptors[0],
+            0,
+            0,
+        );
+
+        println!("22");
+
+        write_descriptor_set.add_write_descriptors(
+            desc_set,
+            vk::DescriptorType::STORAGE_BUFFER,
+            write_descriptor_set.buffer_descriptors[1],
+            1,
+            0,
+        );
+        println!("33");
+        println!("b1/2: {:?} {:?}", b1, b2);
+        write_descriptor_set.update_descriptors_sets();
+        println!("44");
+        n += 1;
+    }
+
+    let mut cmd_buffers: Vec<usize> = Vec::with_capacity(shaders.len());
+    let mut cmd_pool = vkcmd::VkCmdPool::new(&vulkan);
+
+    for _ in 0..shaders.len() {
+        cmd_buffers.push(cmd_pool.create_cmd_buffer(vk::CommandBufferLevel::PRIMARY));
+    }
+
+    for i in cmd_buffers {
+        cmd_pool.begin_cmd(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT, i);
+        cmd_pool.bind_pipeline(shad_pip_vec[i].pipeline, vk::PipelineBindPoint::COMPUTE, i);
+        cmd_pool.bind_descriptor(
+            shad_pipeline_layout[i],
+            vk::PipelineBindPoint::COMPUTE,
+            &shad_desc_vec[i].set,
+            i,
+        );
+
+        let d = dispatch[i];
+        cmd_pool.dispatch(d.0, d.1, d.2, i);
+
+        // Memory barrier
+        let cmd_barrier = vk::BufferMemoryBarrier::builder()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            .buffer(vk_buffer.buffer)
+            .size(vk::WHOLE_SIZE);
+        let cmd_barrier2 = vk::BufferMemoryBarrier::builder()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            .buffer(vk_buffer2.buffer)
+            .size(vk::WHOLE_SIZE);
+        unsafe {
+            vulkan.device.cmd_pipeline_barrier(
+                cmd_pool.cmd_buffers[i],
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[cmd_barrier.build(), cmd_barrier2.build()],
+                &[],
+            );
+        }
+
+        cmd_pool.end_cmd(i);
+    }
+
+    let queue = unsafe { vulkan.device.get_device_queue(vulkan.queue_family_index, 0) };
+    cmd_pool.submit(queue);
+
+    unsafe {
+        vulkan
+            .device
+            .queue_wait_idle(queue)
+            .expect("[ERR] Error while waiting for queue to be idle.")
+    };
+
+    // Download results.
+    let shader_output = vk_mem.get_memory::<T>(input.len(), 0);
+
+    shader_output
+}
+
 pub fn one_shot_job<T>(
     shader_path: &PathBuf,
     input: &Vec<T>,
@@ -48,14 +221,14 @@ pub fn one_shot_job<T>(
     // Memory init.
     let buffer_size: u64 = (input.len() * std::mem::size_of::<T>()) as u64;
     let mem_t = Instant::now();
-    let vk_buffer = vkmem::VkBuffer::new(&vulkan, buffer_size);
-    let vk_mem = vkmem::VkMem::find_mem(&vulkan, vk_buffer.get_buffer_memory_requirements());
+    let mut vk_buffer = vkmem::VkBuffer::new(&vulkan, buffer_size);
+    let vk_mem = vkmem::VkMem::find_mem(&vulkan, buffer_size);
     if vk_mem.is_none() {
         panic!("[ERR] Could not find a memory type fitting our need.");
     }
 
     let vk_mem = vk_mem.unwrap();
-    vk_mem.bind(vk_buffer.buffer, 0);
+    vk_buffer.bind(vk_mem.mem, 0);
     vk_mem.map_memory(input, 0);
     let mem_d = mem_t.elapsed();
 
@@ -83,6 +256,7 @@ pub fn one_shot_job<T>(
     write_descriptor_set.add_write_descriptors(
         *descriptor.get_first_set().unwrap(),
         vk::DescriptorType::STORAGE_BUFFER,
+        write_descriptor_set.buffer_descriptors[0],
         0,
         0,
     );

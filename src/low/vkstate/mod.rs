@@ -56,6 +56,10 @@ pub fn print_work_limits(vulkan: &VulkanState) {
         "[NFO] Device max work group invocation: {}",
         work_group_invocation
     );
+    println!(
+        "[NFO] minStorageBufferOffset: {}",
+        physical_limits.min_storage_buffer_offset_alignment
+    );
 }
 
 unsafe extern "system" fn vulkan_debug_callback(

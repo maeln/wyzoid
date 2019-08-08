@@ -92,15 +92,17 @@ impl<'a> VkWriteDescriptor<'a> {
         let descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
             .buffer(buffer)
             .offset(offset)
-            .range(range);
-
-        self.buffer_descriptors.push(descriptor_buffer_info.build());
+            .range(range)
+            .build();
+        println!("off: {}", offset);
+        self.buffer_descriptors.push(descriptor_buffer_info);
     }
 
     pub fn add_write_descriptors(
         &mut self,
         descriptor_set: vk::DescriptorSet,
         descriptor_type: vk::DescriptorType,
+        buffer_info: vk::DescriptorBufferInfo,
         dst_binding: u32,
         dst_array: u32,
     ) {
@@ -109,12 +111,17 @@ impl<'a> VkWriteDescriptor<'a> {
             .dst_binding(dst_binding)
             .dst_array_element(dst_array)
             .descriptor_type(descriptor_type)
-            .buffer_info(&self.buffer_descriptors);
-
-        self.write_descriptors.push(write_descriptor_set.build());
+            .buffer_info(&[buffer_info])
+            .build();
+        println!("set: {}", write_descriptor_set.descriptor_count);
+        unsafe {
+        println!("setb: {}", std::slice::from_raw_parts(write_descriptor_set.p_buffer_info, 1)[0].offset)
+        };
+        self.write_descriptors.push(write_descriptor_set);
     }
 
     pub fn update_descriptors_sets(&self) {
+        println!("vkdef: {}", self.buffer_descriptors[1].offset);
         unsafe {
             self.state
                 .device

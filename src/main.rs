@@ -66,6 +66,7 @@ fn doit(data: *mut f32, id: f32) -> *mut f32 {
 const BUFFER_CAPACITY: u64 = 4096 * 4096;
 
 fn main() {
+    /*
     let mut hello: Vec<f32> = utils::rand_vec(BUFFER_CAPACITY as usize, 0.0, 1.0);
     let (shader_output, timings) = high::job::one_shot_job(
         &PathBuf::from("shaders/bin/double/taylor.cs.spirv"),
@@ -99,5 +100,32 @@ fn main() {
         if diff_count > 5 {
             break;
         }
+    }
+    */
+
+    let mut i1: Vec<f32> = Vec::new();
+    let mut i2: Vec<f32> = Vec::new();
+    for i in 0..64 {
+        i1.push(i as f32);
+        i2.push(64.0 + (i as f32));
+    }
+
+    let shader_output = high::job::mutli_shader(
+        &i1,
+        &i2,
+        &[
+            PathBuf::from("shaders/bin/double/taylor.cs.spirv"),
+            PathBuf::from("shaders/bin/double/double.cs.spirv"),
+        ],
+        &[(64, 1, 1), (64, 1, 1)],
+    );
+
+    for i in 0..64 {
+        println!("i1: {}, i2: {}", i1[i], i2[i]);
+    }
+
+    println!("((((((((((())))))))))))");
+    for i in 0..64 {
+        println!("p1: {}, p2: {}", shader_output[i], shader_output[i + 32]);
     }
 }
