@@ -58,18 +58,46 @@ impl<'a> VkBuffer<'a> {
         unsafe {
             self.state
                 .device
-                .bind_buffer_memory(self.buffer, mem, offset)
+                .bind_buffer_memory(self.buffer, mem, self.offset)
                 .expect("[ERR] Could not bind buffer memory")
         };
     }
 
     pub fn buffer_info(&self) {
         let req = self.get_buffer_memory_requirements();
-        print!("size: {}; offset: {}; alignement: {};", self.size, self.offset, req.alignment);
+        print!(
+            "size: {}; offset: {}; alignement: {};",
+            self.size, self.offset, req.alignment
+        );
     }
 }
 
-// let mem_requirement = unsafe { vulkan.device.get_buffer_memory_requirements(buffer) };
+/// Return (minimum memory size needed, buffers offsets)
+pub fn compute_non_overlapping_buffer_alignment<'a>(
+    buffers: &Vec<VkBuffer<'a>>,
+) -> (u64, Vec<u64>) {
+    let mut min_size = 0;
+    let mut offsets: Vec<u64> = Vec::new();
+    for buffer in buffers {
+        let mem_req = buffer.get_buffer_memory_requirements();
+        let req_size = mem_req.size;
+        let req_alignment = mem_req.alignment;
+        let off_bytes = min_size % req_alignment;
+        if off_bytes == 0 {
+            // if the current size is already a multiple of the required alignement
+            // we can just use the size as the offset.
+            offsets.push(min_size);
+            min_size += req_size;
+        } else {
+            // Otherwise we find the closest multiple of the alignment.
+            let offset = min_size + (req_alignment - off_bytes);
+            offsets.push(offset);
+            min_size += req_size + offset;
+        }
+    }
+
+    (min_size, offsets)
+}
 
 impl<'a> Drop for VkBuffer<'a> {
     fn drop(&mut self) {
@@ -80,10 +108,7 @@ impl<'a> Drop for VkBuffer<'a> {
 }
 
 impl<'a> VkMem<'a> {
-    pub fn find_mem(
-        vkstate: &'a VulkanState,
-        size: u64,
-    ) -> Option<Self> {
+    pub fn find_mem(vkstate: &'a VulkanState, size: u64) -> Option<Self> {
         let mem_props = unsafe {
             vkstate
                 .instance
@@ -104,8 +129,7 @@ impl<'a> VkMem<'a> {
                 && mem_type_props
                     .property_flags
                     .contains(vk::MemoryPropertyFlags::HOST_COHERENT)
-                && mem_props.memory_heaps[mem_type_props.heap_index as usize].size
-                    > size
+                && mem_props.memory_heaps[mem_type_props.heap_index as usize].size > size
             {
                 mem_index = Some(i);
             }
@@ -154,6 +178,28 @@ impl<'a> VkMem<'a> {
         }
     }
 
+    pub fn map_buffer<T>(&self, data: &Vec<T>, buffer: &VkBuffer) {
+        let pp_data: *mut T = unsafe {
+            self.state
+                .device
+                .map_memory(
+                    self.mem,
+                    buffer.offset,
+                    buffer.size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .expect("[ERR] Could not map memory.") as *mut T
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), pp_data, data.len());
+        }
+
+        unsafe {
+            self.state.device.unmap_memory(self.mem);
+        }
+    }
+
     pub fn get_memory<T>(&self, capacity: usize, offset: u64) -> Vec<T> {
         let mut output: Vec<T> = Vec::with_capacity(capacity);
         let size = (capacity * std::mem::size_of::<T>()) as u64;
@@ -172,6 +218,34 @@ impl<'a> VkMem<'a> {
         unsafe {
             self.state.device.unmap_memory(self.mem);
         }
+
+        output
+    }
+
+    pub fn get_buffer<T>(&self, buffer: &VkBuffer) -> Vec<T> {
+        let capacity: usize = (buffer.size as usize) / std::mem::size_of::<T>();
+        let mut output: Vec<T> = Vec::with_capacity(capacity);
+        let pp_data: *mut T = unsafe {
+            self.state
+                .device
+                .map_memory(
+                    self.mem,
+                    buffer.offset,
+                    buffer.size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .expect("[ERR] Could not map memory.") as *mut T
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(pp_data, output.as_mut_ptr(), capacity);
+            output.set_len(capacity);
+        }
+
+        unsafe {
+            self.state.device.unmap_memory(self.mem);
+        }
+
         output
     }
 }

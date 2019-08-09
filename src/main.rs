@@ -105,27 +105,30 @@ fn main() {
 
     let mut i1: Vec<f32> = Vec::new();
     let mut i2: Vec<f32> = Vec::new();
-    for i in 0..64 {
+    for i in 0..80 {
         i1.push(i as f32);
-        i2.push(64.0 + (i as f32));
+        i2.push(40.0 + (i as f32));
     }
 
+    let mut inputs = Vec::new();
+    inputs.push(&i1);
+    inputs.push(&i2);
+
     let shader_output = high::job::mutli_shader(
-        &i1,
-        &i2,
+        &inputs,
         &[
             PathBuf::from("shaders/bin/double/taylor.cs.spirv"),
             PathBuf::from("shaders/bin/double/double.cs.spirv"),
         ],
-        &[(64, 1, 1), (64, 1, 1)],
+        &[(2, 1, 1), (2, 1, 1)],
     );
 
-    for i in 0..64 {
+    for i in 0..80 {
         println!("i1: {}, i2: {}", i1[i], i2[i]);
     }
 
     println!("((((((((((())))))))))))");
-    for i in 0..64 {
-        println!("p1: {}, p2: {}", shader_output[i], shader_output[i + 64]);
+    for i in 0..80 {
+        println!("p1: {}, p2: {}", shader_output[0][i], shader_output[1][i]);
     }
 }

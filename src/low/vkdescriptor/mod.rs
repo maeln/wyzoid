@@ -94,7 +94,6 @@ impl<'a> VkWriteDescriptor<'a> {
             .offset(offset)
             .range(range)
             .build();
-        println!("off: {}", offset);
         self.buffer_descriptors.push(descriptor_buffer_info);
     }
 
@@ -113,15 +112,10 @@ impl<'a> VkWriteDescriptor<'a> {
             .descriptor_type(descriptor_type)
             .buffer_info(buffer_info)
             .build();
-        println!("set: {}", write_descriptor_set.descriptor_count);
-        unsafe {
-        println!("setb: {}", std::slice::from_raw_parts(write_descriptor_set.p_buffer_info, 1)[0].offset)
-        };
         self.write_descriptors.push(write_descriptor_set);
     }
 
     pub fn update_descriptors_sets(&self) {
-        println!("vkdef: {}", self.buffer_descriptors[1].offset);
         unsafe {
             self.state
                 .device

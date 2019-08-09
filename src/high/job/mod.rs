@@ -36,43 +36,30 @@ impl fmt::Display for Timings {
 }
 
 pub fn mutli_shader<T: Clone>(
-    input1: &Vec<T>,
-    input2: &Vec<T>,
+    inputs: &Vec<&Vec<T>>,
     shaders: &[PathBuf],
     dispatch: &[(u32, u32, u32)],
-) -> Vec<T> {
+) -> Vec<Vec<T>> {
     // Vulkan init.
     let vulkan = vkstate::init_vulkan();
     vkstate::print_work_limits(&vulkan);
 
     // Memory init.
-    let buffer1_size: u64 = (input1.len() * std::mem::size_of::<T>()) as u64;
-    let buffer2_size: u64 = (input2.len() * std::mem::size_of::<T>()) as u64;
-    let mut vk_buffer = vkmem::VkBuffer::new(&vulkan, buffer1_size);
-    let mut vk_buffer2 = vkmem::VkBuffer::new(&vulkan, buffer2_size);
-    print!("Buf1:");
-    vk_buffer.buffer_info();
-    print!("\n");
+    let buffer_sizes: Vec<u64> = inputs.iter().map(|v| (v.len() * std::mem::size_of::<T>()) as u64).collect();
+    let mut buffers: Vec<vkmem::VkBuffer> = buffer_sizes.iter().map(|size| vkmem::VkBuffer::new(&vulkan, *size)).collect();
+    let (mem_size, offsets) = vkmem::compute_non_overlapping_buffer_alignment(&buffers);
 
-    print!("Buf2:");
-    vk_buffer2.buffer_info();
-    print!("\n");
-
-    let vk_mem = vkmem::VkMem::find_mem(&vulkan, buffer1_size + buffer2_size);
+    let vk_mem = vkmem::VkMem::find_mem(&vulkan, mem_size);
     if vk_mem.is_none() {
         panic!("[ERR] Could not find a memory type fitting our need.");
     }
 
     let vk_mem = vk_mem.unwrap();
-    vk_buffer.bind(vk_mem.mem, 0);
-    vk_buffer2.bind(vk_mem.mem, buffer1_size);
-    let mut input = Vec::from(input1.as_slice());
-    let mut i2 = input2.clone();
-    input.append(&mut i2);
-    vk_mem.map_memory(&input, 0);
-    let b1 = vk_buffer.buffer;
-    let b2 = vk_buffer2.buffer;
-    println!("b1/2: {:?} {:?}", b1, b2);
+    for i in 0..buffers.len() {
+        let mbuf = buffers.get_mut(i).unwrap();
+        mbuf.bind(vk_mem.mem, offsets[i]);
+        vk_mem.map_buffer(inputs[i], mbuf);
+    }
 
     let mut shad_vec: Vec<vkshader::VkShader> = Vec::with_capacity(shaders.len());
     let mut shad_pip_vec: Vec<vkpipeline::VkComputePipeline> = Vec::with_capacity(shaders.len());
@@ -115,13 +102,10 @@ pub fn mutli_shader<T: Clone>(
 
     let mut n = 0;
     for write_descriptor_set in shad_desc_set.iter_mut() {
-        println!("11");
-
-        write_descriptor_set.add_buffer(b1, 0, vk_buffer.size);
-        write_descriptor_set.add_buffer(b2, 0, vk_buffer2.size);
-        println!("b1/2: {:?} {:?}", b1, b2);
+        for buffer in &buffers {
+            write_descriptor_set.add_buffer(buffer.buffer, 0, buffer.size);
+        }
         let desc_set: vk::DescriptorSet = *shad_desc_vec[n].get_first_set().unwrap();
-        println!("ptr: {:?}", shad_desc_vec[0].set[0]);
         let mut bf1 = Vec::new();
         let mut bf2 = Vec::new();
         bf1.push(write_descriptor_set.buffer_descriptors[0]);
@@ -134,8 +118,6 @@ pub fn mutli_shader<T: Clone>(
             0,
         );
 
-        println!("22");
-
         write_descriptor_set.add_write_descriptors(
             desc_set,
             vk::DescriptorType::STORAGE_BUFFER,
@@ -143,10 +125,7 @@ pub fn mutli_shader<T: Clone>(
             1,
             0,
         );
-        println!("33");
-        println!("b1/2: {:?} {:?}", b1, b2);
         write_descriptor_set.update_descriptors_sets();
-        println!("44");
         n += 1;
     }
 
@@ -171,16 +150,17 @@ pub fn mutli_shader<T: Clone>(
         cmd_pool.dispatch(d.0, d.1, d.2, i);
 
         // Memory barrier
-        let cmd_barrier = vk::BufferMemoryBarrier::builder()
-            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
-            .dst_access_mask(vk::AccessFlags::SHADER_READ)
-            .buffer(vk_buffer.buffer)
-            .size(vk::WHOLE_SIZE);
-        let cmd_barrier2 = vk::BufferMemoryBarrier::builder()
-            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
-            .dst_access_mask(vk::AccessFlags::SHADER_READ)
-            .buffer(vk_buffer2.buffer)
-            .size(vk::WHOLE_SIZE);
+        let mut buffer_barrier: Vec<vk::BufferMemoryBarrier> = Vec::new();
+        for buffer in &buffers {
+            buffer_barrier.push(
+                vk::BufferMemoryBarrier::builder()
+                    .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                    .buffer(buffer.buffer)
+                    .size(vk::WHOLE_SIZE)
+                    .build(),
+            );
+        }
         unsafe {
             vulkan.device.cmd_pipeline_barrier(
                 cmd_pool.cmd_buffers[i],
@@ -188,7 +168,7 @@ pub fn mutli_shader<T: Clone>(
                 vk::PipelineStageFlags::COMPUTE_SHADER,
                 vk::DependencyFlags::empty(),
                 &[],
-                &[cmd_barrier.build(), cmd_barrier2.build()],
+                &buffer_barrier,
                 &[],
             );
         }
@@ -207,9 +187,9 @@ pub fn mutli_shader<T: Clone>(
     };
 
     // Download results.
-    let shader_output = vk_mem.get_memory::<T>(input.len(), 0);
+    let output: Vec<Vec<T>> = buffers.iter().map(|buf| vk_mem.get_buffer(buf)).collect();
 
-    shader_output
+    output
 }
 
 pub fn one_shot_job<T>(
