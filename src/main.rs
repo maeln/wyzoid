@@ -63,46 +63,7 @@ fn doit(data: *mut f32, id: f32) -> *mut f32 {
     addr
 }
 
-const BUFFER_CAPACITY: u64 = 4096 * 4096;
-
 fn main() {
-    /*
-    let mut hello: Vec<f32> = utils::rand_vec(BUFFER_CAPACITY as usize, 0.0, 1.0);
-    let (shader_output, timings) = high::job::one_shot_job(
-        &PathBuf::from("shaders/bin/double/taylor.cs.spirv"),
-        &hello,
-        ((BUFFER_CAPACITY / 64) as u32, 1, 1),
-    );
-    println!("[NFO] Timings:\n{}", timings);
-
-    let new_start = Instant::now();
-    let mut cpu_calc: Vec<f32> = Vec::with_capacity(BUFFER_CAPACITY as usize);
-    for i in 0..hello.len() {
-        cpu_calc.push(taylor_sin(hello[i]));
-    }
-    println!("[NFO] CPU version: {} ms", get_fract_s(new_start.elapsed()));
-    let mut diff_count = 0;
-    for i in 0..5 {
-        println!(
-            "RES[{}]: {} // {} // {} // {}",
-            i,
-            hello[i],
-            f32::sin(hello[i]),
-            cpu_calc[i],
-            shader_output[i]
-        );
-    }
-    for i in 0..BUFFER_CAPACITY as usize {
-        if !utils::f32_cmp(cpu_calc[i], shader_output[i], 0.001) {
-            diff_count += 1;
-            println!("DIFF[{}]: {} // {}", i, cpu_calc[i], shader_output[i]);
-        }
-        if diff_count > 5 {
-            break;
-        }
-    }
-    */
-
     let mut i1: Vec<f32> = Vec::new();
     let mut i2: Vec<f32> = Vec::new();
     for i in 0..80 {
@@ -110,18 +71,19 @@ fn main() {
         i2.push(40.0 + (i as f32));
     }
 
-    let mut inputs = Vec::new();
-    inputs.push(&i1);
-    inputs.push(&i2);
+    let shader1 = PathBuf::from("shaders/bin/double/taylor.cs.spirv");
+    let shader2 = PathBuf::from("shaders/bin/double/double.cs.spirv");
 
-    let shader_output = high::job::mutli_shader(
-        &inputs,
-        &[
-            PathBuf::from("shaders/bin/double/taylor.cs.spirv"),
-            PathBuf::from("shaders/bin/double/double.cs.spirv"),
-        ],
-        &[(2, 1, 1), (2, 1, 1)],
-    );
+    let job = high::job::JobBuilder::new()
+        .add_buffer(&i1)
+        .add_buffer(&i2)
+        .add_shader(&shader1)
+        .add_shader(&shader2)
+        .add_dispatch((2, 1, 1))
+        .add_dispatch((2, 1, 1))
+        .build();
+
+    let shader_output = job.execute();
 
     for i in 0..80 {
         println!("i1: {}, i2: {}", i1[i], i2[i]);
