@@ -83,7 +83,7 @@ fn main() {
         .add_dispatch((2, 1, 1))
         .build();
 
-    let shader_output = job.execute();
+    let (shader_output, timings) = job.execute();
 
     for i in 0..80 {
         println!("i1: {}, i2: {}", i1[i], i2[i]);
@@ -93,4 +93,6 @@ fn main() {
     for i in 0..80 {
         println!("p1: {}, p2: {}", shader_output[0][i], shader_output[1][i]);
     }
+
+    println!("Timings:\n{}", timings);
 }

@@ -17,6 +17,111 @@ pub struct Timings {
     pub download: Duration,
 }
 
+pub struct TimingsBuilder {
+    init_timer: Option<Instant>,
+    init: Option<Duration>,
+    upload_timer: Option<Instant>,
+    upload: Option<Duration>,
+    shader_timer: Option<Instant>,
+    shader: Option<Duration>,
+    cmd_timer: Option<Instant>,
+    cmd: Option<Duration>,
+    execution_timer: Option<Instant>,
+    execution: Option<Duration>,
+    download_timer: Option<Instant>,
+    download: Option<Duration>,
+}
+
+impl TimingsBuilder {
+    pub fn new() -> TimingsBuilder {
+        TimingsBuilder {
+            init_timer: None,
+            init: None,
+            upload_timer: None,
+            upload: None,
+            shader_timer: None,
+            shader: None,
+            cmd_timer: None,
+            cmd: None,
+            execution_timer: None,
+            execution: None,
+            download_timer: None,
+            download: None,
+        }
+    }
+
+    pub fn start_init(mut self) -> TimingsBuilder {
+        self.init_timer = Some(Instant::now());
+        self
+    }
+
+    pub fn stop_init(mut self) -> TimingsBuilder {
+        self.init = self.init_timer.map(|instant| instant.elapsed());
+        self
+    }
+
+    pub fn start_upload(mut self) -> TimingsBuilder {
+        self.upload_timer = Some(Instant::now());
+        self
+    }
+
+    pub fn stop_upload(mut self) -> TimingsBuilder {
+        self.upload = self.upload_timer.map(|instant| instant.elapsed());
+        self
+    }
+
+    pub fn start_shader(mut self) -> TimingsBuilder {
+        self.shader_timer = Some(Instant::now());
+        self
+    }
+
+    pub fn stop_shader(mut self) -> TimingsBuilder {
+        self.shader = self.shader_timer.map(|instant| instant.elapsed());
+        self
+    }
+
+    pub fn start_cmd(mut self) -> TimingsBuilder {
+        self.cmd_timer = Some(Instant::now());
+        self
+    }
+
+    pub fn stop_cmd(mut self) -> TimingsBuilder {
+        self.cmd = self.cmd_timer.map(|instant| instant.elapsed());
+        self
+    }
+
+    pub fn start_execution(mut self) -> TimingsBuilder {
+        self.execution_timer = Some(Instant::now());
+        self
+    }
+
+    pub fn stop_execution(mut self) -> TimingsBuilder {
+        self.execution = self.execution_timer.map(|instant| instant.elapsed());
+        self
+    }
+
+    pub fn start_download(mut self) -> TimingsBuilder {
+        self.download_timer = Some(Instant::now());
+        self
+    }
+
+    pub fn stop_download(mut self) -> TimingsBuilder {
+        self.download = self.download_timer.map(|instant| instant.elapsed());
+        self
+    }
+
+    pub fn build(self) -> Timings {
+        Timings {
+            init: self.init.unwrap(),
+            upload: self.upload.unwrap(),
+            shader: self.shader.unwrap(),
+            cmd: self.cmd.unwrap(),
+            execution: self.execution.unwrap(),
+            download: self.download.unwrap(),
+        }
+    }
+}
+
 impl fmt::Display for Timings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "init: {}ms\n", get_fract_s(self.init))?;
@@ -94,16 +199,20 @@ impl<'a, T> JobBuilder<'a, T> {
 }
 
 impl<'a, T> Job<'a, T> {
-    pub fn execute(&self) -> Vec<Vec<T>> {
+    pub fn execute(&self) -> (Vec<Vec<T>>, Timings) {
+        let mut timing_builder = TimingsBuilder::new();
         let inputs = &self.inputs;
         let shaders = &self.shaders;
         let dispatch = &self.dispatch;
 
         // Vulkan init.
+        timing_builder = timing_builder.start_init();
         let vulkan = vkstate::init_vulkan();
         vkstate::print_work_limits(&vulkan);
+        timing_builder = timing_builder.stop_init();
 
         // Memory init.
+        timing_builder = timing_builder.start_upload();
         let buffer_sizes: Vec<u64> = inputs
             .iter()
             .map(|v| (v.len() * std::mem::size_of::<T>()) as u64)
@@ -125,7 +234,10 @@ impl<'a, T> Job<'a, T> {
             mbuf.bind(vk_mem.mem, offsets[i]);
             vk_mem.map_buffer(inputs[i], mbuf);
         }
+        timing_builder = timing_builder.stop_upload();
 
+        // Shaders
+        timing_builder = timing_builder.start_shader();
         let mut shad_vec: Vec<vkshader::VkShader> = Vec::with_capacity(shaders.len());
         let mut shad_pip_vec: Vec<vkpipeline::VkComputePipeline> =
             Vec::with_capacity(shaders.len());
@@ -195,7 +307,10 @@ impl<'a, T> Job<'a, T> {
             write_descriptor_set.update_descriptors_sets();
             n += 1;
         }
+        timing_builder= timing_builder.stop_shader();
 
+        // Command buffers
+        timing_builder= timing_builder.start_cmd();
         let mut cmd_buffers: Vec<usize> = Vec::with_capacity(shaders.len());
         let mut cmd_pool = vkcmd::VkCmdPool::new(&vulkan);
 
@@ -242,7 +357,10 @@ impl<'a, T> Job<'a, T> {
 
             cmd_pool.end_cmd(i);
         }
+        timing_builder = timing_builder.stop_cmd();
 
+        // Execution
+        timing_builder = timing_builder.start_execution();
         let queue = unsafe { vulkan.device.get_device_queue(vulkan.queue_family_index, 0) };
         cmd_pool.submit(queue);
 
@@ -252,10 +370,13 @@ impl<'a, T> Job<'a, T> {
                 .queue_wait_idle(queue)
                 .expect("[ERR] Error while waiting for queue to be idle.")
         };
+        timing_builder = timing_builder.stop_execution();
 
         // Download results.
+        timing_builder = timing_builder.start_download();
         let output: Vec<Vec<T>> = buffers.iter().map(|buf| vk_mem.get_buffer(buf)).collect();
+        timing_builder = timing_builder.stop_download();
 
-        output
+        (output, timing_builder.build())
     }
 }
