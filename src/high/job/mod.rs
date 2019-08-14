@@ -222,7 +222,6 @@ impl<'a, T> Job<'a, T> {
             .map(|size| vkmem::VkBuffer::new(&vulkan, *size))
             .collect();
         let (mem_size, offsets) = vkmem::compute_non_overlapping_buffer_alignment(&buffers);
-
         let vk_mem = vkmem::VkMem::find_mem(&vulkan, mem_size);
         if vk_mem.is_none() {
             panic!("[ERR] Could not find a memory type fitting our need.");
@@ -234,6 +233,7 @@ impl<'a, T> Job<'a, T> {
             mbuf.bind(vk_mem.mem, offsets[i]);
             vk_mem.map_buffer(inputs[i], mbuf);
         }
+
         timing_builder = timing_builder.stop_upload();
 
         // Shaders
@@ -252,20 +252,16 @@ impl<'a, T> Job<'a, T> {
                 CString::new("main").unwrap(),
             ));
         }
-
         for shader in shad_vec.iter_mut() {
-            shader.add_layout_binding(
-                0,
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                vk::ShaderStageFlags::COMPUTE,
-            );
-            shader.add_layout_binding(
-                1,
-                1,
-                vk::DescriptorType::STORAGE_BUFFER,
-                vk::ShaderStageFlags::COMPUTE,
-            );
+            for i in 0..buffers.len() {
+                println!("Add layout binding: {}", i);
+                shader.add_layout_binding(
+                    i as u32,
+                    1,
+                    vk::DescriptorType::STORAGE_BUFFER,
+                    vk::ShaderStageFlags::COMPUTE,
+                );
+            }
             shader.create_pipeline_layout();
             shad_pipeline_layout.push(shader.pipeline.unwrap());
             shad_pip_vec.push(vkpipeline::VkComputePipeline::new(&vulkan, shader));
@@ -274,43 +270,34 @@ impl<'a, T> Job<'a, T> {
         }
 
         for descriptor in shad_desc_vec.iter_mut() {
-            descriptor.add_pool_size(2, vk::DescriptorType::STORAGE_BUFFER);
+            descriptor.add_pool_size(buffers.len() as u32, vk::DescriptorType::STORAGE_BUFFER);
             descriptor.create_pool(1);
             descriptor.create_set();
         }
 
         let mut n = 0;
         for write_descriptor_set in shad_desc_set.iter_mut() {
-            for buffer in &buffers {
-                write_descriptor_set.add_buffer(buffer.buffer, 0, buffer.size);
-            }
             let desc_set: vk::DescriptorSet = *shad_desc_vec[n].get_first_set().unwrap();
-            let mut bf1 = Vec::new();
-            let mut bf2 = Vec::new();
-            bf1.push(write_descriptor_set.buffer_descriptors[0]);
-            bf2.push(write_descriptor_set.buffer_descriptors[1]);
-            write_descriptor_set.add_write_descriptors(
-                desc_set,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &bf1,
-                0,
-                0,
-            );
-
-            write_descriptor_set.add_write_descriptors(
-                desc_set,
-                vk::DescriptorType::STORAGE_BUFFER,
-                &bf2,
-                1,
-                0,
-            );
+            let mut buffers_nfos: Vec<Vec<vk::DescriptorBufferInfo>> = Vec::new();
+            for i in 0..buffers.len() {
+                write_descriptor_set.add_buffer(buffers[i].buffer, 0, buffers[i].size);
+                buffers_nfos.push(vec![write_descriptor_set.buffer_descriptors[i]]);
+                write_descriptor_set.add_write_descriptors(
+                    desc_set,
+                    vk::DescriptorType::STORAGE_BUFFER,
+                    &buffers_nfos[i],
+                    i as u32,
+                    0,
+                );
+            }
             write_descriptor_set.update_descriptors_sets();
             n += 1;
         }
-        timing_builder= timing_builder.stop_shader();
+
+        timing_builder = timing_builder.stop_shader();
 
         // Command buffers
-        timing_builder= timing_builder.start_cmd();
+        timing_builder = timing_builder.start_cmd();
         let mut cmd_buffers: Vec<usize> = Vec::with_capacity(shaders.len());
         let mut cmd_pool = vkcmd::VkCmdPool::new(&vulkan);
 

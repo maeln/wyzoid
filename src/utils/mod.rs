@@ -1,4 +1,4 @@
-use rand::{thread_rng, Rng};
+use rand::Rng;
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -52,7 +52,7 @@ where
     let mut rng = rand::thread_rng();
     let mut output: Vec<T> = Vec::with_capacity(len);
 
-    for i in 0..len {
+    for _ in 0..len {
         output.push(rng.gen_range(low, high))
     }
 

@@ -1,11 +1,13 @@
 [package]
 name = "wyzoid"
 version = "0.1.0"
-authors = ["Maël <contact@maeln.com>"]
+authors = ["Maël Naccache Tüfekçi <contact@maeln.com>"]
 edition = "2018"
 license = "CECILL-2.1"
 readme = "README.md"
 repository = "https://github.com/maeln/wyzoid"
+keywords = ["vulkan", "ash", "gpgpu", "compute", "vk", "shader"]
+description = "Wyzoid is a small framework made to easily experiment with compute shader / GPGPU."
 
 
 [profile.release]
