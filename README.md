@@ -1,7 +1,7 @@
 # Wyzoid 🧶
 
-[![Crates.io](https://img.shields.io/crates/v/shdrr.svg)](https://crates.io/crates/wyzoid)
-[![Build Status](https://travis-ci.org/maeln/shdrr.svg?branch=master)](https://travis-ci.org/maeln/wyzoid)
+[![Crates.io](https://img.shields.io/crates/v/wyzoid.svg)](https://crates.io/crates/wyzoid)
+[![Build Status](https://travis-ci.org/maeln/wyzoid.svg?branch=master)](https://travis-ci.org/maeln/wyzoid)
 
 Wyzoid is a small framework made to easily experiment with compute shader / GPGPU using Vulkan (via [ash](https://crates.io/crates/ash)).
 
