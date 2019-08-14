@@ -6,7 +6,7 @@ edition = "2018"
 license = "CECILL-2.1"
 readme = "README.md"
 repository = "https://github.com/maeln/wyzoid"
-keywords = ["vulkan", "ash", "gpgpu", "compute", "vk", "shader"]
+keywords = ["vulkan", "ash", "gpgpu", "compute", "shader"]
 description = "Wyzoid is a small framework made to easily experiment with compute shader / GPGPU."
 
 
