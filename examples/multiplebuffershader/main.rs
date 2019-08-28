@@ -17,8 +17,8 @@ fn main() {
     // We create the compute job.
     // Since our shader has a local work size of 64, we divide the number of data by 64 for the dispatch.
     let job = high::job::JobBuilder::new()
-        .add_buffer(&input1)
-        .add_buffer(&input2)
+        .add_buffer(&input1, 0, 0)
+        .add_buffer(&input2, 0, 1)
         .add_shader(&taylor)
         .add_shader(&add_sub)
         .add_dispatch(((DATA_LEN / 64) as u32, 1, 1))
@@ -28,8 +28,10 @@ fn main() {
     let (shader_output, timings) = job.execute();
 
     for i in 0..DATA_LEN {
-        println!("[{}] in1: {}, out1: {}, in2: {}, out2: {}", 
-        i, input1[i], shader_output[0][i], input2[i], shader_output[1][i]);
+        println!(
+            "[{}] in1: {}, out1: {}, in2: {}, out2: {}",
+            i, input1[i], shader_output[0][i], input2[i], shader_output[1][i]
+        );
     }
 
     println!("Timings:\n{}", timings);

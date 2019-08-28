@@ -140,68 +140,79 @@ impl fmt::Display for Timings {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct BindPoint {
+    pub set: u32,
+    pub bind: u32,
+}
+
+impl BindPoint {
+    pub fn new(set: u32, bind: u32) -> BindPoint {
+        BindPoint { set, bind }
+    }
+}
+
 pub struct Job<'a, T> {
-    inputs: Vec<&'a Vec<T>>,
+    inputs: Vec<(BindPoint, &'a Vec<T>)>,
+    buffers: Vec<(BindPoint, usize)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
 }
 
 pub struct JobBuilder<'a, T> {
-    inputs: Option<Vec<&'a Vec<T>>>,
-    shaders: Option<Vec<&'a PathBuf>>,
-    dispatch: Option<Vec<(u32, u32, u32)>>,
+    inputs: Vec<(BindPoint, &'a Vec<T>)>,
+    buffers: Vec<(BindPoint, usize)>,
+    shaders: Vec<&'a PathBuf>,
+    dispatch: Vec<(u32, u32, u32)>,
 }
 
 impl<'a, T> JobBuilder<'a, T> {
     pub fn new() -> JobBuilder<'a, T> {
         JobBuilder {
-            inputs: Some(Vec::new()),
-            shaders: Some(Vec::new()),
-            dispatch: Some(Vec::new()),
+            inputs: Vec::new(),
+            buffers: Vec::new(),
+            shaders: Vec::new(),
+            dispatch: Vec::new(),
         }
     }
 
-    pub fn add_buffer(mut self, data: &'a Vec<T>) -> JobBuilder<'a, T> {
-        self.inputs.as_mut().and_then(|b| {
-            b.push(data);
-            Some(b)
-        });
+    pub fn add_buffer(mut self, data: &'a Vec<T>, set: u32, bind: u32) -> JobBuilder<'a, T> {
+        self.inputs.push((BindPoint::new(set, bind), data));
+        self
+    }
+
+    pub fn add_ro_buffer(mut self, size: usize, set: u32, bind: u32) -> JobBuilder<'a, T> {
+        self.buffers.push((BindPoint::new(set, bind), size));
         self
     }
 
     pub fn add_shader(mut self, shader: &'a PathBuf) -> JobBuilder<'a, T> {
-        self.shaders.as_mut().and_then(|s| {
-            s.push(shader);
-            Some(s)
-        });
+        self.shaders.push(shader);
         self
     }
 
     pub fn add_dispatch(mut self, dispatch: (u32, u32, u32)) -> JobBuilder<'a, T> {
-        self.dispatch.as_mut().and_then(|d| {
-            d.push(dispatch);
-            Some(d)
-        });
+        self.dispatch.push(dispatch);
         self
     }
 
     pub fn build(self) -> Job<'a, T> {
-        let inputs = self.inputs.unwrap();
-        let shaders = self.shaders.unwrap();
-        let dispatch = self.dispatch.unwrap();
-
         Job {
-            inputs: inputs,
-            shaders: shaders,
-            dispatch: dispatch,
+            inputs: self.inputs,
+            buffers: self.buffers,
+            shaders: self.shaders,
+            dispatch: self.dispatch,
         }
     }
 }
 
+// TODO: Correctly manage set binding.
+// For the moment, all binding will use the set 0 neverminding the actual value in BindPoint
 impl<'a, T> Job<'a, T> {
     pub fn execute(&self) -> (Vec<Vec<T>>, Timings) {
         let mut timing_builder = TimingsBuilder::new();
         let inputs = &self.inputs;
+        let ro_buffers = &self.buffers;
         let shaders = &self.shaders;
         let dispatch = &self.dispatch;
 
@@ -213,10 +224,14 @@ impl<'a, T> Job<'a, T> {
 
         // Memory init.
         timing_builder = timing_builder.start_upload();
-        let buffer_sizes: Vec<u64> = inputs
+        let mut buffer_sizes: Vec<u64> = inputs
             .iter()
-            .map(|v| (v.len() * std::mem::size_of::<T>()) as u64)
+            .map(|v| (v.1.len() * std::mem::size_of::<T>()) as u64)
             .collect();
+        for s in ro_buffers {
+            buffer_sizes.push((s.1 * std::mem::size_of::<T>()) as u64);
+        }
+
         let mut buffers: Vec<vkmem::VkBuffer> = buffer_sizes
             .iter()
             .map(|size| vkmem::VkBuffer::new(&vulkan, *size))
@@ -231,7 +246,9 @@ impl<'a, T> Job<'a, T> {
         for i in 0..buffers.len() {
             let mbuf = buffers.get_mut(i).unwrap();
             mbuf.bind(vk_mem.mem, offsets[i]);
-            vk_mem.map_buffer(inputs[i], mbuf);
+            if i < inputs.len() {
+                vk_mem.map_buffer(inputs[i].1, mbuf);
+            }
         }
 
         timing_builder = timing_builder.stop_upload();

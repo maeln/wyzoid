@@ -1,3 +1,3 @@
 #!/bin/bash
 
-shdrr -rv -d shaders/src -o shaders/bin 
+shdrr -rv -d examples/shaders/src -o examples/shaders/bin 

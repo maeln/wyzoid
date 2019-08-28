@@ -3,8 +3,8 @@ use ash::vk;
 use std::ffi::CString;
 use std::path::PathBuf;
 
-use crate::utils::{load_file, to_vec32};
 use crate::low::vkstate::VulkanState;
+use crate::utils::{load_file, to_vec32};
 
 pub struct VkShader<'a> {
     pub bytecode: Vec<u32>,

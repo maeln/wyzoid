@@ -16,8 +16,8 @@ fn main() {
     // We create the compute job.
     // Since our shader has a local work size of 64, we divide the number of data by 64 for the dispatch.
     let job = high::job::JobBuilder::new()
-        .add_buffer(&input1)
-        .add_buffer(&input2)
+        .add_buffer(&input1, 0, 0)
+        .add_buffer(&input2, 0, 1)
         .add_shader(&shader)
         .add_dispatch(((DATA_LEN / 64) as u32, 1, 1))
         .build();

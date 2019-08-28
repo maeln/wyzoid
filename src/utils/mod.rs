@@ -1,5 +1,6 @@
 use rand::Rng;
 use std::ffi::CString;
+use std::ops::{Add, Div, Mul, Sub};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -57,4 +58,67 @@ where
     }
 
     output
+}
+
+pub fn min_max<T: PartialOrd + Copy>(data: &[T]) -> Option<(T, T)> {
+    if data.is_empty() {
+        return None;
+    } else if data.len() == 1 {
+        return Some((data[0], data[0]));
+    }
+
+    let mut min_local: T = data[0];
+    let mut max_local: T = data[0];
+    for i in 1..data.len() {
+        if min_local > data[i] {
+            min_local = data[i];
+        }
+        if max_local < data[i] {
+            max_local = data[i];
+        }
+    }
+
+    Some((min_local, max_local))
+}
+
+pub fn remap<T>(x: T, origin_min: T, origin_max: T, map_min: T, map_max: T) -> T
+where
+    T: Copy + Add<Output = T> + Sub<Output = T> + Mul<Output = T> + Div<Output = T>,
+{
+    map_min + (x - origin_min) * (map_max - map_min) / (origin_max - origin_min)
+}
+
+pub fn to_ppm(data: &Vec<f32>, width: usize, height: usize) -> Option<String> {
+    if width * height * 3 != data.len() {
+        return None;
+    }
+
+    let (min, max) = min_max(data).unwrap();
+    let mut ppm = String::new();
+    ppm.push_str("P3\n");
+    ppm.push_str(&format!("{} {}\n", width, height));
+    ppm.push_str("255\n");
+
+    /*
+    for y in 0..height {
+        for x in 0..width {
+            ppm.push_str(&format!(
+                "{} {} {}\t",
+                remap(data[y * width + x + 0], min, max, 0.0, 255.0) as u8,
+                remap(data[y * width + x + 1], min, max, 0.0, 255.0) as u8,
+                remap(data[y * width + x + 2], min, max, 0.0, 255.0) as u8,
+            ));
+        }
+        ppm.push_str("\n");
+    }
+    */
+
+    for i in 0..data.len() {
+        ppm.push_str(&format!("{} ", remap(data[i], min, max, 0.0, 255.0) as u8));
+        if i % width == 0 {
+            ppm.push_str("\n");
+        }
+    }
+
+    Some(ppm)
 }
