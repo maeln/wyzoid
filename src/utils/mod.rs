@@ -3,6 +3,7 @@ use std::ffi::CString;
 use std::ops::{Add, Div, Mul, Sub};
 use std::path::PathBuf;
 use std::time::Duration;
+use log::{error};
 
 pub fn to_vec32(vecin: Vec<u8>) -> Vec<u32> {
     unsafe { vecin.align_to::<u32>().1.to_vec() }
@@ -13,19 +14,18 @@ pub fn load_file(file: &PathBuf) -> Option<Vec<u8>> {
     match contents {
         Ok(file_str) => Some(file_str),
         Err(err) => {
-            eprintln!("[ERR] Impossible to read file {} : {}", file.display(), err);
+            error!("Impossible to read file {} : {}", file.display(), err);
 
             None
         }
     }
 }
 
-pub fn print_tick(val: bool) {
+pub fn tick(val: bool) -> String {
     if val {
-        println!("✅");
-    } else {
-        println!("❌");
+        return "✅".to_string();
     }
+    "❌".to_string()
 }
 
 pub fn cstr2string(mut cstr: Vec<i8>) -> String {
@@ -98,20 +98,6 @@ pub fn to_ppm(data: &Vec<f32>, width: usize, height: usize) -> Option<String> {
     ppm.push_str("P3\n");
     ppm.push_str(&format!("{} {}\n", width, height));
     ppm.push_str("255\n");
-
-    /*
-    for y in 0..height {
-        for x in 0..width {
-            ppm.push_str(&format!(
-                "{} {} {}\t",
-                remap(data[y * width + x + 0], min, max, 0.0, 255.0) as u8,
-                remap(data[y * width + x + 1], min, max, 0.0, 255.0) as u8,
-                remap(data[y * width + x + 2], min, max, 0.0, 255.0) as u8,
-            ));
-        }
-        ppm.push_str("\n");
-    }
-    */
 
     for i in 0..data.len() {
         ppm.push_str(&format!("{} ", remap(data[i], min, max, 0.0, 255.0) as u8));

@@ -271,7 +271,6 @@ impl<'a, T> Job<'a, T> {
         }
         for shader in shad_vec.iter_mut() {
             for i in 0..buffers.len() {
-                println!("Add layout binding: {}", i);
                 shader.add_layout_binding(
                     i as u32,
                     1,

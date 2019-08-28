@@ -1,4 +1,5 @@
 extern crate ash;
+extern crate log;
 extern crate rand;
 
 pub mod high;

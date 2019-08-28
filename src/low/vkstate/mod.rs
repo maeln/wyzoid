@@ -2,13 +2,15 @@ pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk::{self, PhysicalDevice};
 use ash::{Device, Entry, Instance};
 
-use crate::utils::{cstr2string, print_tick};
+use crate::utils::{cstr2string, tick};
 
 use std::ffi::{CStr, CString};
 use std::io::{self, BufRead};
 use std::os::raw::{c_char, c_void};
 
 use ash::extensions::ext::DebugReport;
+
+use log::{info, warn};
 
 pub struct VulkanState {
     pub entry: Entry,
@@ -44,20 +46,20 @@ pub fn print_work_limits(vulkan: &VulkanState) {
     let work_group_size = physical_limits.max_compute_work_group_size;
     let work_group_invocation = physical_limits.max_compute_work_group_invocations;
 
-    println!(
-        "[NFO] Device max work group count: [{}, {}, {}]",
+    info!(
+        "Device max work group count: [{}, {}, {}]",
         work_group_count[0], work_group_count[1], work_group_count[2]
     );
-    println!(
-        "[NFO] Device max work group size: [{}, {}, {}]",
+    info!(
+        "Device max work group size: [{}, {}, {}]",
         work_group_size[0], work_group_size[1], work_group_size[2]
     );
-    println!(
-        "[NFO] Device max work group invocation: {}",
+    info!(
+        "Device max work group invocation: {}",
         work_group_invocation
     );
-    println!(
-        "[NFO] minStorageBufferOffset: {}",
+    info!(
+        "minStorageBufferOffset: {}",
         physical_limits.min_storage_buffer_offset_alignment
     );
 }
@@ -72,7 +74,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     p_message: *const c_char,
     _: *mut c_void,
 ) -> u32 {
-    println!("\n[VAL] {:?}", CStr::from_ptr(p_message));
+    warn!("\n{:?}", CStr::from_ptr(p_message));
     vk::FALSE
 }
 
@@ -123,12 +125,11 @@ pub fn init_vulkan() -> VulkanState {
         let properties = unsafe { instance.get_physical_device_properties(physical) };
 
         let phy_name = cstr2string(properties.device_name.to_vec());
-        println!(
-            "[NFO] Only one physical device ({}) defaulting to it.",
-            phy_name
-        );
+        info!("Only one physical device ({}) defaulting to it.", phy_name);
     } else {
-        println!("[NFO] Physical device:");
+        // We don't use the logger here because we need user
+        // feedback so we need whatever we print to be visible in all cases.
+        println!("Physical device:");
         let mut i = 0;
         for dev in phy_count.clone() {
             let properties = unsafe { instance.get_physical_device_properties(dev) };
@@ -156,14 +157,10 @@ pub fn init_vulkan() -> VulkanState {
             }
 
             println!("- [{}] {}:", i, dev_name);
-            print!("\t* GRAPHICS: ");
-            print_tick(dev_graphics);
-            print!("\t* COMPUTE: ");
-            print_tick(dev_compute);
-            print!("\t* TRANSFER: ");
-            print_tick(dev_transfer);
-            print!("\t* SPARSE OPS: ");
-            print_tick(dev_sparse);
+            println!("\t* GRAPHICS: {}", tick(dev_graphics));
+            println!("\t* COMPUTE: {}", tick(dev_compute));
+            println!("\t* TRANSFER: {}", tick(dev_transfer));
+            println!("\t* SPARSE OPS: {}", tick(dev_sparse));
 
             i += 1;
         }
@@ -179,7 +176,7 @@ pub fn init_vulkan() -> VulkanState {
         physical = phy_count[phy_id];
         let properties = unsafe { instance.get_physical_device_properties(physical) };
         let phy_name = cstr2string(properties.device_name.to_vec());
-        println!("[NFO] Using device {}.", phy_name);
+        info!("Using device {}.", phy_name);
     }
 
     // Get queue family:

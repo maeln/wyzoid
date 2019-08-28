@@ -3,6 +3,7 @@ use ash::vk;
 use ash::vk::DeviceMemory;
 
 use crate::low::vkstate::VulkanState;
+use log::info;
 
 pub struct VkMem<'a> {
     pub size: u64,
@@ -65,8 +66,8 @@ impl<'a> VkBuffer<'a> {
 
     pub fn buffer_info(&self) {
         let req = self.get_buffer_memory_requirements();
-        print!(
-            "size: {}; offset: {}; alignement: {};",
+        info!(
+            "Memory requirements: size: {}; offset: {}; alignement: {};",
             self.size, self.offset, req.alignment
         );
     }
@@ -118,8 +119,8 @@ impl<'a> VkMem<'a> {
         for i in 0..mem_props.memory_type_count {
             let mem_type_props = mem_props.memory_types[i as usize];
             let buffer_max_size = mem_props.memory_heaps[mem_type_props.heap_index as usize].size;
-            println!(
-                "[NFO] Mem {} max heap size: {} Mio",
+            info!(
+                "Mem {}: max heap size: {} Mio",
                 i,
                 buffer_max_size as f64 / 1024.0 / 1024.0
             );
