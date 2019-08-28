@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "wyzoid"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ash 0.29.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
