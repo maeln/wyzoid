@@ -4,26 +4,27 @@ use ash::vk::DeviceMemory;
 
 use crate::low::vkstate::VulkanState;
 use log::info;
+use std::rc::Rc;
 
-pub struct VkMem<'a> {
+pub struct VkMem {
     pub size: u64,
     pub index: u32,
     pub mem: DeviceMemory,
 
-    state: &'a VulkanState,
+    state: Rc<VulkanState>,
 }
 
 /// For the moment, I am going to assume that 1 MemAlloc = 1 Buffer.
 /// This should be changed to allow several buffer in one allocation which is more efficient.
-pub struct VkBuffer<'a> {
+pub struct VkBuffer {
     pub size: u64,
     pub offset: u64,
     pub buffer: vk::Buffer,
-    state: &'a VulkanState,
+    state: Rc<VulkanState>,
 }
 
-impl<'a> VkBuffer<'a> {
-    pub fn new(vkstate: &'a VulkanState, size: u64) -> Self {
+impl VkBuffer {
+    pub fn new(vkstate: Rc<VulkanState>, size: u64) -> Self {
         let queue_indices = &[vkstate.queue_family_index];
         let buffer_create_info = vk::BufferCreateInfo::builder()
             .size(size)
@@ -74,9 +75,7 @@ impl<'a> VkBuffer<'a> {
 }
 
 /// Return (minimum memory size needed, buffers offsets)
-pub fn compute_non_overlapping_buffer_alignment<'a>(
-    buffers: &Vec<VkBuffer<'a>>,
-) -> (u64, Vec<u64>) {
+pub fn compute_non_overlapping_buffer_alignment(buffers: &Vec<VkBuffer>) -> (u64, Vec<u64>) {
     let mut min_size = 0;
     let mut offsets: Vec<u64> = Vec::new();
     for buffer in buffers {
@@ -100,7 +99,7 @@ pub fn compute_non_overlapping_buffer_alignment<'a>(
     (min_size, offsets)
 }
 
-impl<'a> Drop for VkBuffer<'a> {
+impl Drop for VkBuffer {
     fn drop(&mut self) {
         unsafe {
             self.state.device.destroy_buffer(self.buffer, None);
@@ -108,8 +107,8 @@ impl<'a> Drop for VkBuffer<'a> {
     }
 }
 
-impl<'a> VkMem<'a> {
-    pub fn find_mem(vkstate: &'a VulkanState, size: u64) -> Option<Self> {
+impl VkMem {
+    pub fn find_mem(vkstate: Rc<VulkanState>, size: u64) -> Option<Self> {
         let mem_props = unsafe {
             vkstate
                 .instance
@@ -152,7 +151,7 @@ impl<'a> VkMem<'a> {
                 .expect("[ERR] Could not allocate memory in device.")
         };
 
-        let mem_struct: VkMem<'a> = VkMem {
+        let mem_struct: VkMem = VkMem {
             size: size,
             index: mem_index,
             mem: vulkan_mem,
@@ -251,7 +250,7 @@ impl<'a> VkMem<'a> {
     }
 }
 
-impl<'a> Drop for VkMem<'a> {
+impl Drop for VkMem {
     fn drop(&mut self) {
         unsafe {
             self.state.device.free_memory(self.mem, None);

@@ -1,5 +1,7 @@
 extern crate wyzoid;
 use std::path::PathBuf;
+use std::rc::Rc;
+
 use wyzoid::{high, utils};
 
 fn main() {
@@ -8,21 +10,28 @@ fn main() {
     let fbm = PathBuf::from("examples/shaders/bin/examples/fbm.cs.spirv");
     let turbo = PathBuf::from("examples/shaders/bin/examples/turbo.cs.spirv");
 
+    let vulkan = Rc::new(wyzoid::low::vkstate::init_vulkan());
+
     // We create the compute job.
     // The first shader has a local size of (8,8), so we need to dispatch (32,32) job
     // fill our 256x256 image.
     // The second one use a local size of 64 linearly over x, so we juste need to dispatch
     // the size of the image divided by 64 to cover the entire space.
-    let job = high::job::JobBuilder::new()
+    let mut job = high::job::JobBuilder::new()
         .add_ro_buffer(256 * 256, 0, 0)
         .add_ro_buffer(256 * 256 * 4, 0, 1)
         .add_shader(&fbm)
         .add_shader(&turbo)
         .add_dispatch((32, 32, 1))
         .add_dispatch((256 * 256 / 64, 1, 1))
-        .build();
+        .build(vulkan);
 
-    let (shader_output, timings) = job.execute();
+    job.execute();
+    while job.status() == wyzoid::high::job::JobStatus::EXECUTING {
+        job.wait_until_idle(1 * 1000 * 1000 * 1000);
+    }
+    let shader_output = job.get_output().unwrap();
+    let timings = job.get_timing();
 
     println!("Timings:\n{}", timings);
     // We oversize the img data vec but whatever

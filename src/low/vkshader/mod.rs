@@ -2,23 +2,23 @@ use ash::version::DeviceV1_0;
 use ash::vk;
 use std::ffi::CString;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use crate::low::vkstate::VulkanState;
 use crate::utils::{load_file, to_vec32};
 
-pub struct VkShader<'a> {
+pub struct VkShader {
     pub bytecode: Vec<u32>,
     pub module: vk::ShaderModule,
     pub layouts_bindings: Vec<vk::DescriptorSetLayoutBinding>,
     pub layout: Vec<vk::DescriptorSetLayout>,
     pub pipeline: Option<vk::PipelineLayout>,
     pub entry_point: CString,
-
-    state: &'a VulkanState,
+    state: Rc<VulkanState>,
 }
 
-impl<'a> VkShader<'a> {
-    pub fn new(state: &'a VulkanState, path: &PathBuf, entry_point: CString) -> Self {
+impl VkShader {
+    pub fn new(state: Rc<VulkanState>, path: &PathBuf, entry_point: CString) -> Self {
         let shader_bytecode = to_vec32(load_file(path).expect("[ERR] Could not load shader file."));
 
         let shader_module_create_info = vk::ShaderModuleCreateInfo::builder()
@@ -83,7 +83,7 @@ impl<'a> VkShader<'a> {
     }
 }
 
-impl<'a> Drop for VkShader<'a> {
+impl Drop for VkShader {
     fn drop(&mut self) {
         unsafe {
             if let Some(pipeline) = self.pipeline {

@@ -83,6 +83,17 @@
       "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false
+    },
+    {
+      "name": "(Windows) Basic Example Launch",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/examples/basic.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false
     }
   ]
 }

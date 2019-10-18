@@ -3,17 +3,19 @@ use crate::low::vkstate::VulkanState;
 
 use crate::ash::version::DeviceV1_0;
 use ash::vk;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-pub struct VkDescriptor<'a> {
+pub struct VkDescriptor {
     pub pool_sizes: Vec<vk::DescriptorPoolSize>,
     pub pool: Option<vk::DescriptorPool>,
     pub set: Vec<vk::DescriptorSet>,
-    state: &'a VulkanState,
-    shader: &'a VkShader<'a>,
+    state: Rc<VulkanState>,
+    shader: Rc<RefCell<VkShader>>,
 }
 
-impl<'a> VkDescriptor<'a> {
-    pub fn new(state: &'a VulkanState, shader: &'a VkShader<'a>) -> Self {
+impl VkDescriptor {
+    pub fn new(state: Rc<VulkanState>, shader: Rc<RefCell<VkShader>>) -> Self {
         VkDescriptor {
             pool_sizes: Vec::new(),
             pool: None,
@@ -44,9 +46,10 @@ impl<'a> VkDescriptor<'a> {
     }
 
     pub fn create_set(&mut self) {
+        let borrowed_layout = &self.shader.borrow().layout;
         let descriptor_allocate = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.pool.unwrap())
-            .set_layouts(&self.shader.layout);
+            .set_layouts(borrowed_layout);
 
         let mut descriptor_set = unsafe {
             self.state
@@ -63,7 +66,7 @@ impl<'a> VkDescriptor<'a> {
     }
 }
 
-impl<'a> Drop for VkDescriptor<'a> {
+impl Drop for VkDescriptor {
     fn drop(&mut self) {
         unsafe {
             if let Some(pool) = self.pool {
@@ -73,14 +76,14 @@ impl<'a> Drop for VkDescriptor<'a> {
     }
 }
 
-pub struct VkWriteDescriptor<'a> {
+pub struct VkWriteDescriptor {
     pub buffer_descriptors: Vec<vk::DescriptorBufferInfo>,
     pub write_descriptors: Vec<vk::WriteDescriptorSet>,
-    state: &'a VulkanState,
+    state: Rc<VulkanState>,
 }
 
-impl<'a> VkWriteDescriptor<'a> {
-    pub fn new(state: &'a VulkanState) -> Self {
+impl VkWriteDescriptor {
+    pub fn new(state: Rc<VulkanState>) -> Self {
         VkWriteDescriptor {
             buffer_descriptors: Vec::new(),
             write_descriptors: Vec::new(),

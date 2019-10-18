@@ -10,3 +10,8 @@
 # 0.1.2
 
     - Use `log` to display runtime info instead of `println!`.
+
+# 0.1.3 - WIP
+
+    - Executing a job is now asynchronous using fences.
+    - The vulkan state now has to be initialized outside of a job.

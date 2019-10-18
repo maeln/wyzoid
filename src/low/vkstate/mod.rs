@@ -9,6 +9,7 @@ use std::io::{self, BufRead};
 use std::os::raw::{c_char, c_void};
 
 use ash::extensions::ext::DebugReport;
+use std::rc::Rc;
 
 use log::{info, warn};
 
@@ -34,7 +35,7 @@ impl Drop for VulkanState {
     }
 }
 
-pub fn print_work_limits(vulkan: &VulkanState) {
+pub fn print_work_limits(vulkan: Rc<VulkanState>) {
     let physical_device_props = unsafe {
         vulkan
             .instance
