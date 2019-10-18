@@ -2,15 +2,16 @@ use crate::low::vkstate::VulkanState;
 
 use crate::ash::version::DeviceV1_0;
 use ash::vk;
+use std::rc::Rc;
 
-pub struct VkCmdPool<'a> {
+pub struct VkCmdPool {
     pub cmd_pool: vk::CommandPool,
     pub cmd_buffers: Vec<vk::CommandBuffer>,
-    state: &'a VulkanState,
+    state: Rc<VulkanState>,
 }
 
-impl<'a> VkCmdPool<'a> {
-    pub fn new(state: &'a VulkanState) -> VkCmdPool {
+impl VkCmdPool {
+    pub fn new(state: Rc<VulkanState>) -> VkCmdPool {
         let command_pool_create_info = vk::CommandPoolCreateInfo::builder()
             .queue_family_index(state.queue_family_index)
             .build();
@@ -122,7 +123,7 @@ impl<'a> VkCmdPool<'a> {
     }
 }
 
-impl<'a> Drop for VkCmdPool<'a> {
+impl Drop for VkCmdPool {
     fn drop(&mut self) {
         unsafe {
             self.state

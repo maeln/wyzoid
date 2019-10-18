@@ -1,5 +1,6 @@
 use ash::version::DeviceV1_0;
 use ash::vk;
+use std::rc::Rc;
 
 use crate::low::vkstate::VulkanState;
 
@@ -11,13 +12,13 @@ pub enum FenceStates {
     UNKNOWN,
 }
 
-pub struct VkFence<'a> {
+pub struct VkFence {
     pub fence: vk::Fence,
-    state: &'a VulkanState,
+    state: Rc<VulkanState>,
 }
 
-impl<'a> VkFence<'a> {
-    pub fn new(state: &'a VulkanState, signaled: bool) -> Self {
+impl VkFence {
+    pub fn new(state: Rc<VulkanState>, signaled: bool) -> Self {
         let mut fence_info = vk::FenceCreateInfo::builder();
         if signaled {
             fence_info = fence_info.flags(vk::FenceCreateFlags::SIGNALED);
@@ -72,7 +73,7 @@ impl<'a> VkFence<'a> {
     }
 }
 
-impl<'a> Drop for VkFence<'a> {
+impl Drop for VkFence {
     fn drop(&mut self) {
         unsafe {
             self.state.device.destroy_fence(self.fence, None);

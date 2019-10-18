@@ -60,7 +60,38 @@
         }
       ],
       "externalConsole": false,
-      "MIMode": "lldb"
+      "MIMode": "lldb",
+      "miDebuggerPath": "/c/Program Files/LLVM/bin/lldb"
+    },
+    {
+      "name": "(lldb) Launch basic example",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/examples/basic",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "VK_SDK_PATH",
+          "value": "/Users/maeln/learning/vulkansdk-macos-1.1.92.1"
+        },
+        {
+          "name": "DYLD_LIBRARY_PATH",
+          "value": " /Users/maeln/learning/vulkansdk-macos-1.1.92.1/macOS/lib/"
+        },
+        {
+          "name": "VK_LAYER_PATH",
+          "value": "/Users/maeln/learning/vulkansdk-macos-1.1.92.1/macOS/etc/vulkan/explicit_layer.d"
+        },
+        {
+          "name": "VK_ICD_FILENAMES",
+          "value": "/Users/maeln/learning/vulkansdk-macos-1.1.92.1/macOS/etc/vulkan/icd.d/MoltenVK_icd.json"
+        }
+      ],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "miDebuggerPath": "/c/Program Files/LLVM/bin/lldb"
     },
     {
       "name": "(Windows) Launch",
@@ -84,5 +115,16 @@
       "environment": [],
       "externalConsole": false
     }
+    {
+      "name": "(Windows) Basic Example Launch",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/examples/basic.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false
+    },
   ]
 }

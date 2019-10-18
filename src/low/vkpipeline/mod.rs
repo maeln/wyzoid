@@ -3,14 +3,15 @@ use crate::low::vkstate::VulkanState;
 
 use crate::ash::version::DeviceV1_0;
 use ash::vk;
+use std::rc::Rc;
 
-pub struct VkComputePipeline<'a> {
+pub struct VkComputePipeline {
     pub pipeline: vk::Pipeline,
-    state: &'a VulkanState,
+    state: Rc<VulkanState>,
 }
 
-impl<'a> VkComputePipeline<'a> {
-    pub fn new(state: &'a VulkanState, shader: &'a VkShader<'a>) -> Self {
+impl VkComputePipeline {
+    pub fn new(state: Rc<VulkanState>, shader: &VkShader) -> Self {
         let stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
             .module(shader.module)
             .stage(vk::ShaderStageFlags::COMPUTE)
@@ -35,7 +36,7 @@ impl<'a> VkComputePipeline<'a> {
     }
 }
 
-impl<'a> Drop for VkComputePipeline<'a> {
+impl Drop for VkComputePipeline {
     fn drop(&mut self) {
         unsafe {
             self.state.device.destroy_pipeline(self.pipeline, None);
