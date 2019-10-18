@@ -1,4 +1,4 @@
-use crate::low::{vkcmd, vkdescriptor, vkmem, vkpipeline, vkshader, vkstate};
+use crate::low::{vkcmd, vkdescriptor, vkfence, vkmem, vkpipeline, vkshader, vkstate};
 use crate::utils::get_fract_s;
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk;
@@ -17,6 +17,7 @@ pub struct Timings {
     pub download: Duration,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct TimingsBuilder {
     init_timer: Option<Instant>,
     init: Option<Duration>,
@@ -152,11 +153,28 @@ impl BindPoint {
     }
 }
 
+#[derive(Eq, PartialEq, Debug)]
+pub enum JobStatus {
+    INIT,
+    EXECUTING,
+    SUCESS,
+    FAILURE,
+}
+
 pub struct Job<'a, T> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
+    state: JobState<'a>,
+}
+
+pub struct JobState<'a> {
+    timing: TimingsBuilder,
+    fence: Option<vkfence::VkFence<'a>>,
+    memory: Option<vkmem::VkMem<'a>>,
+    buffers: Vec<vkmem::VkBuffer<'a>>,
+    vulkan: Option<vkstate::VulkanState>,
 }
 
 pub struct JobBuilder<'a, T> {
@@ -197,11 +215,19 @@ impl<'a, T> JobBuilder<'a, T> {
     }
 
     pub fn build(self) -> Job<'a, T> {
+        let state = JobState {
+            fence: None,
+            buffers: Vec::new(),
+            memory: None,
+            timing: TimingsBuilder::new(),
+            vulkan: None,
+        };
         Job {
             inputs: self.inputs,
             buffers: self.buffers,
             shaders: self.shaders,
             dispatch: self.dispatch,
+            state: state,
         }
     }
 }
@@ -209,21 +235,21 @@ impl<'a, T> JobBuilder<'a, T> {
 // TODO: Correctly manage set binding.
 // For the moment, all binding will use the set 0 neverminding the actual value in BindPoint
 impl<'a, T> Job<'a, T> {
-    pub fn execute(&self) -> (Vec<Vec<T>>, Timings) {
-        let mut timing_builder = TimingsBuilder::new();
+    pub fn execute(&mut self) {
         let inputs = &self.inputs;
         let ro_buffers = &self.buffers;
         let shaders = &self.shaders;
         let dispatch = &self.dispatch;
 
         // Vulkan init.
-        timing_builder = timing_builder.start_init();
-        let vulkan = vkstate::init_vulkan();
-        vkstate::print_work_limits(&vulkan);
-        timing_builder = timing_builder.stop_init();
+        self.state.timing = self.state.timing.start_init();
+        self.state.vulkan = Some(vkstate::init_vulkan());
+        let vkref = self.state.vulkan.as_ref().unwrap();
+        vkstate::print_work_limits(vkref);
+        self.state.timing = self.state.timing.stop_init();
 
         // Memory init.
-        timing_builder = timing_builder.start_upload();
+        self.state.timing = self.state.timing.start_upload();
         let mut buffer_sizes: Vec<u64> = inputs
             .iter()
             .map(|v| (v.1.len() * std::mem::size_of::<T>()) as u64)
@@ -234,10 +260,10 @@ impl<'a, T> Job<'a, T> {
 
         let mut buffers: Vec<vkmem::VkBuffer> = buffer_sizes
             .iter()
-            .map(|size| vkmem::VkBuffer::new(&vulkan, *size))
+            .map(|size| vkmem::VkBuffer::new(vkref, *size))
             .collect();
         let (mem_size, offsets) = vkmem::compute_non_overlapping_buffer_alignment(&buffers);
-        let vk_mem = vkmem::VkMem::find_mem(&vulkan, mem_size);
+        let vk_mem = vkmem::VkMem::find_mem(vkref, mem_size);
         if vk_mem.is_none() {
             panic!("[ERR] Could not find a memory type fitting our need.");
         }
@@ -251,10 +277,10 @@ impl<'a, T> Job<'a, T> {
             }
         }
 
-        timing_builder = timing_builder.stop_upload();
+        self.state.timing = self.state.timing.stop_upload();
 
         // Shaders
-        timing_builder = timing_builder.start_shader();
+        self.state.timing = self.state.timing.start_shader();
         let mut shad_vec: Vec<vkshader::VkShader> = Vec::with_capacity(shaders.len());
         let mut shad_pip_vec: Vec<vkpipeline::VkComputePipeline> =
             Vec::with_capacity(shaders.len());
@@ -264,7 +290,7 @@ impl<'a, T> Job<'a, T> {
             Vec::with_capacity(shaders.len());
         for path in shaders {
             shad_vec.push(vkshader::VkShader::new(
-                &vulkan,
+                vkref,
                 path,
                 CString::new("main").unwrap(),
             ));
@@ -280,9 +306,9 @@ impl<'a, T> Job<'a, T> {
             }
             shader.create_pipeline_layout();
             shad_pipeline_layout.push(shader.pipeline.unwrap());
-            shad_pip_vec.push(vkpipeline::VkComputePipeline::new(&vulkan, shader));
-            shad_desc_vec.push(vkdescriptor::VkDescriptor::new(&vulkan, shader));
-            shad_desc_set.push(vkdescriptor::VkWriteDescriptor::new(&vulkan));
+            shad_pip_vec.push(vkpipeline::VkComputePipeline::new(vkref, shader));
+            shad_desc_vec.push(vkdescriptor::VkDescriptor::new(vkref, shader));
+            shad_desc_set.push(vkdescriptor::VkWriteDescriptor::new(vkref));
         }
 
         for descriptor in shad_desc_vec.iter_mut() {
@@ -310,12 +336,12 @@ impl<'a, T> Job<'a, T> {
             n += 1;
         }
 
-        timing_builder = timing_builder.stop_shader();
+        self.state.timing = self.state.timing.stop_shader();
 
         // Command buffers
-        timing_builder = timing_builder.start_cmd();
+        self.state.timing = self.state.timing.start_cmd();
         let mut cmd_buffers: Vec<usize> = Vec::with_capacity(shaders.len());
-        let mut cmd_pool = vkcmd::VkCmdPool::new(&vulkan);
+        let mut cmd_pool = vkcmd::VkCmdPool::new(vkref);
 
         for _ in 0..shaders.len() {
             cmd_buffers.push(cmd_pool.create_cmd_buffer(vk::CommandBufferLevel::PRIMARY));
@@ -347,7 +373,7 @@ impl<'a, T> Job<'a, T> {
                 );
             }
             unsafe {
-                vulkan.device.cmd_pipeline_barrier(
+                vkref.device.cmd_pipeline_barrier(
                     cmd_pool.cmd_buffers[i],
                     vk::PipelineStageFlags::COMPUTE_SHADER,
                     vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -360,19 +386,23 @@ impl<'a, T> Job<'a, T> {
 
             cmd_pool.end_cmd(i);
         }
-        timing_builder = timing_builder.stop_cmd();
+        self.state.timing = self.state.timing.stop_cmd();
 
         // Execution
-        timing_builder = timing_builder.start_execution();
-        let queue = unsafe { vulkan.device.get_device_queue(vulkan.queue_family_index, 0) };
-        cmd_pool.submit(queue);
-
+        self.state.fence = Some(vkfence::VkFence::new(vkref, false));
+        self.state.timing = self.state.timing.start_execution();
+        let queue = unsafe { vkref.device.get_device_queue(vkref.queue_family_index, 0) };
+        cmd_pool.submit(queue, Some(self.state.fence.as_ref().unwrap().fence));
+        /*
         unsafe {
             vulkan
                 .device
                 .queue_wait_idle(queue)
                 .expect("[ERR] Error while waiting for queue to be idle.")
         };
+        */
+        /*
+        let res = fence.wait(2 * 1000 * 1000 * 1000);
         timing_builder = timing_builder.stop_execution();
 
         // Download results.
@@ -381,5 +411,44 @@ impl<'a, T> Job<'a, T> {
         timing_builder = timing_builder.stop_download();
 
         (output, timing_builder.build())
+        */
+    }
+
+    pub fn status(&self) -> JobStatus {
+        if self.state.fence.is_none() {
+            return JobStatus::INIT;
+        }
+
+        let r = self.state.fence.unwrap();
+        match r.status() {
+            vkfence::FenceStates::SIGNALED => JobStatus::SUCESS,
+            vkfence::FenceStates::UNSIGNALED => JobStatus::EXECUTING,
+            _ => JobStatus::FAILURE,
+        }
+    }
+
+    pub fn get_output(&self) -> Option<Vec<Vec<T>>> {
+        if self.status() != JobStatus::SUCESS {
+            return None;
+        }
+
+        let output: Vec<Vec<T>> = self
+            .state
+            .buffers
+            .iter()
+            .map(|buf| self.state.memory.as_ref().unwrap().get_buffer(buf))
+            .collect();
+
+        Some(output)
+    }
+
+    pub fn wait_until_idle(&self, timeout: u64) -> JobStatus {
+        let current_status = self.status();
+        if current_status != JobStatus::EXECUTING {
+            return current_status;
+        }
+
+        let res = self.state.fence.unwrap().wait(timeout);
+        self.status()
     }
 }

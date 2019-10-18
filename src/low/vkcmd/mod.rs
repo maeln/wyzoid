@@ -107,12 +107,16 @@ impl<'a> VkCmdPool<'a> {
         };
     }
 
-    pub fn submit(&self, queue: vk::Queue) {
+    pub fn submit(&self, queue: vk::Queue, fence: Option<vk::Fence>) {
         let submit_info = vk::SubmitInfo::builder().command_buffers(&self.cmd_buffers);
         unsafe {
             self.state
                 .device
-                .queue_submit(queue, &[submit_info.build()], vk::Fence::null())
+                .queue_submit(
+                    queue,
+                    &[submit_info.build()],
+                    fence.unwrap_or(vk::Fence::null()),
+                )
                 .expect("[ERR] Could not submit queue.")
         };
     }
