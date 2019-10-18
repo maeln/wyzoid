@@ -10,8 +10,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
 
-pub struct Timings {
-    pub init: Duration,
+pub struct JobTimings {
     pub upload: Duration,
     pub shader: Duration,
     pub cmd: Duration,
@@ -20,9 +19,7 @@ pub struct Timings {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct TimingsBuilder {
-    init_timer: Option<Instant>,
-    init: Option<Duration>,
+pub struct JobTimingsBuilder {
     upload_timer: Option<Instant>,
     upload: Option<Duration>,
     shader_timer: Option<Instant>,
@@ -35,11 +32,9 @@ pub struct TimingsBuilder {
     download: Option<Duration>,
 }
 
-impl TimingsBuilder {
-    pub fn new() -> TimingsBuilder {
-        TimingsBuilder {
-            init_timer: None,
-            init: None,
+impl JobTimingsBuilder {
+    pub fn new() -> JobTimingsBuilder {
+        JobTimingsBuilder {
             upload_timer: None,
             upload: None,
             shader_timer: None,
@@ -53,69 +48,58 @@ impl TimingsBuilder {
         }
     }
 
-    pub fn start_init(mut self) -> TimingsBuilder {
-        self.init_timer = Some(Instant::now());
-        self
-    }
-
-    pub fn stop_init(mut self) -> TimingsBuilder {
-        self.init = self.init_timer.map(|instant| instant.elapsed());
-        self
-    }
-
-    pub fn start_upload(mut self) -> TimingsBuilder {
+    pub fn start_upload(mut self) -> JobTimingsBuilder {
         self.upload_timer = Some(Instant::now());
         self
     }
 
-    pub fn stop_upload(mut self) -> TimingsBuilder {
+    pub fn stop_upload(mut self) -> JobTimingsBuilder {
         self.upload = self.upload_timer.map(|instant| instant.elapsed());
         self
     }
 
-    pub fn start_shader(mut self) -> TimingsBuilder {
+    pub fn start_shader(mut self) -> JobTimingsBuilder {
         self.shader_timer = Some(Instant::now());
         self
     }
 
-    pub fn stop_shader(mut self) -> TimingsBuilder {
+    pub fn stop_shader(mut self) -> JobTimingsBuilder {
         self.shader = self.shader_timer.map(|instant| instant.elapsed());
         self
     }
 
-    pub fn start_cmd(mut self) -> TimingsBuilder {
+    pub fn start_cmd(mut self) -> JobTimingsBuilder {
         self.cmd_timer = Some(Instant::now());
         self
     }
 
-    pub fn stop_cmd(mut self) -> TimingsBuilder {
+    pub fn stop_cmd(mut self) -> JobTimingsBuilder {
         self.cmd = self.cmd_timer.map(|instant| instant.elapsed());
         self
     }
 
-    pub fn start_execution(mut self) -> TimingsBuilder {
+    pub fn start_execution(mut self) -> JobTimingsBuilder {
         self.execution_timer = Some(Instant::now());
         self
     }
 
-    pub fn stop_execution(mut self) -> TimingsBuilder {
+    pub fn stop_execution(mut self) -> JobTimingsBuilder {
         self.execution = self.execution_timer.map(|instant| instant.elapsed());
         self
     }
 
-    pub fn start_download(mut self) -> TimingsBuilder {
+    pub fn start_download(mut self) -> JobTimingsBuilder {
         self.download_timer = Some(Instant::now());
         self
     }
 
-    pub fn stop_download(mut self) -> TimingsBuilder {
+    pub fn stop_download(mut self) -> JobTimingsBuilder {
         self.download = self.download_timer.map(|instant| instant.elapsed());
         self
     }
 
-    pub fn build(self) -> Timings {
-        Timings {
-            init: self.init.unwrap_or_default(),
+    pub fn build(self) -> JobTimings {
+        JobTimings {
             upload: self.upload.unwrap_or_default(),
             shader: self.shader.unwrap_or_default(),
             cmd: self.cmd.unwrap_or_default(),
@@ -125,9 +109,8 @@ impl TimingsBuilder {
     }
 }
 
-impl fmt::Display for Timings {
+impl fmt::Display for JobTimings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "init: {}ms\n", get_fract_s(self.init))?;
         write!(f, "upload: {}ms\n", get_fract_s(self.upload))?;
         write!(f, "shader: {}ms\n", get_fract_s(self.shader))?;
         write!(f, "command: {}ms\n", get_fract_s(self.cmd))?;
@@ -136,9 +119,7 @@ impl fmt::Display for Timings {
         write!(
             f,
             "total: {}ms\n",
-            get_fract_s(
-                self.init + self.upload + self.shader + self.cmd + self.execution + self.download
-            )
+            get_fract_s(self.upload + self.shader + self.cmd + self.execution + self.download)
         )
     }
 }
@@ -172,7 +153,7 @@ pub struct Job<'a, T> {
 }
 
 pub struct JobState {
-    timing: TimingsBuilder,
+    timing: JobTimingsBuilder,
     fence: Option<vkfence::VkFence>,
     memory: Option<vkmem::VkMem>,
     buffers: Vec<vkmem::VkBuffer>,
@@ -221,7 +202,7 @@ impl<'a, T> JobBuilder<'a, T> {
             fence: None,
             buffers: Vec::new(),
             memory: None,
-            timing: TimingsBuilder::new(),
+            timing: JobTimingsBuilder::new(),
             vulkan: vulkan,
         };
         Job {
@@ -242,11 +223,6 @@ impl<'a, T> Job<'a, T> {
         let ro_buffers = &self.buffers;
         let shaders = &self.shaders;
         let dispatch = &self.dispatch;
-
-        // Vulkan init.
-        self.state.timing = self.state.timing.start_init();
-        // no more
-        self.state.timing = self.state.timing.stop_init();
 
         // Memory init.
         self.state.timing = self.state.timing.start_upload();
@@ -447,7 +423,7 @@ impl<'a, T> Job<'a, T> {
         Some(output)
     }
 
-    pub fn get_timing(&self) -> Timings {
+    pub fn get_timing(&self) -> JobTimings {
         self.state.timing.build()
     }
 
