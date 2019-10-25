@@ -10,25 +10,23 @@ pub struct VkMem {
     pub size: u64,
     pub index: u32,
     pub mem: DeviceMemory,
-
     state: Rc<VulkanState>,
 }
 
-/// For the moment, I am going to assume that 1 MemAlloc = 1 Buffer.
-/// This should be changed to allow several buffer in one allocation which is more efficient.
 pub struct VkBuffer {
     pub size: u64,
     pub offset: u64,
     pub buffer: vk::Buffer,
+    pub usage: vk::BufferUsageFlags,
     state: Rc<VulkanState>,
 }
 
 impl VkBuffer {
-    pub fn new(vkstate: Rc<VulkanState>, size: u64) -> Self {
+    pub fn new(vkstate: Rc<VulkanState>, size: u64, usage: vk::BufferUsageFlags) -> Self {
         let queue_indices = &[vkstate.queue_family_index];
         let buffer_create_info = vk::BufferCreateInfo::builder()
             .size(size)
-            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+            .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .queue_family_indices(queue_indices);
 
@@ -43,6 +41,7 @@ impl VkBuffer {
             size,
             offset: 0,
             buffer,
+            usage,
             state: vkstate,
         }
     }

@@ -124,7 +124,7 @@ impl fmt::Display for JobTimings {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct BindPoint {
     pub set: u32,
     pub bind: u32,
@@ -147,6 +147,7 @@ pub enum JobStatus {
 pub struct Job<'a, T> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
+    uniforms: Vec<(BindPoint, usize)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
     state: JobState,
@@ -157,12 +158,14 @@ pub struct JobState {
     fence: Option<vkfence::VkFence>,
     memory: Option<vkmem::VkMem>,
     buffers: Vec<vkmem::VkBuffer>,
+    uniforms: Vec<(BindPoint, vkmem::VkBuffer)>,
     vulkan: Rc<vkstate::VulkanState>,
 }
 
 pub struct JobBuilder<'a, T> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
+    uniforms: Vec<(BindPoint, usize)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
 }
@@ -172,6 +175,7 @@ impl<'a, T> JobBuilder<'a, T> {
         JobBuilder {
             inputs: Vec::new(),
             buffers: Vec::new(),
+            uniforms: Vec::new(),
             shaders: Vec::new(),
             dispatch: Vec::new(),
         }
@@ -184,6 +188,11 @@ impl<'a, T> JobBuilder<'a, T> {
 
     pub fn add_ro_buffer(mut self, size: usize, set: u32, bind: u32) -> JobBuilder<'a, T> {
         self.buffers.push((BindPoint::new(set, bind), size));
+        self
+    }
+
+    pub fn add_ubo(mut self, size: usize, set: u32, bind: u32) -> JobBuilder<'a, T> {
+        self.uniforms.push((BindPoint::new(set, bind), size));
         self
     }
 
@@ -201,6 +210,7 @@ impl<'a, T> JobBuilder<'a, T> {
         let state = JobState {
             fence: None,
             buffers: Vec::new(),
+            uniforms: Vec::new(),
             memory: None,
             timing: JobTimingsBuilder::new(),
             vulkan: vulkan,
@@ -208,6 +218,7 @@ impl<'a, T> JobBuilder<'a, T> {
         Job {
             inputs: self.inputs,
             buffers: self.buffers,
+            uniforms: self.uniforms,
             shaders: self.shaders,
             dispatch: self.dispatch,
             state: state,
@@ -218,9 +229,25 @@ impl<'a, T> JobBuilder<'a, T> {
 // TODO: Correctly manage set binding.
 // For the moment, all binding will use the set 0 neverminding the actual value in BindPoint
 impl<'a, T> Job<'a, T> {
+    pub fn update_ubo(&self, set: u32, binding: u32, d: f32) {
+        println!("{:?}", self.state.uniforms[0].0);
+        if let Some(pos) = self
+            .state
+            .uniforms
+            .iter()
+            .position(|u| u.0.set == set && u.0.bind == binding)
+        {
+            println!("yolo");
+            self.state
+                .memory
+                .as_ref()
+                .unwrap()
+                .map_buffer(&vec![d], &self.state.uniforms[pos].1);
+        }
+    }
+
     pub fn execute(&mut self) {
         let inputs = &self.inputs;
-        let ro_buffers = &self.buffers;
         let shaders = &self.shaders;
         let dispatch = &self.dispatch;
 
@@ -230,14 +257,37 @@ impl<'a, T> Job<'a, T> {
             .iter()
             .map(|v| (v.1.len() * std::mem::size_of::<T>()) as u64)
             .collect();
-        for s in ro_buffers {
+        for s in &self.buffers {
             buffer_sizes.push((s.1 * std::mem::size_of::<T>()) as u64);
         }
 
         self.state.buffers = buffer_sizes
             .iter()
-            .map(|size| vkmem::VkBuffer::new(self.state.vulkan.clone(), *size))
+            .map(|size| {
+                vkmem::VkBuffer::new(
+                    self.state.vulkan.clone(),
+                    *size,
+                    vk::BufferUsageFlags::STORAGE_BUFFER,
+                )
+            })
             .collect();
+
+        self.state.uniforms = self
+            .uniforms
+            .iter()
+            .map(|uniform| {
+                (
+                    uniform.0.clone(),
+                    vkmem::VkBuffer::new(
+                        self.state.vulkan.clone(),
+                        uniform.1 as u64,
+                        vk::BufferUsageFlags::UNIFORM_BUFFER,
+                    ),
+                )
+            })
+            .collect();
+
+        // TODO: Include uniforms in the calculation.
         let (mem_size, offsets) =
             vkmem::compute_non_overlapping_buffer_alignment(&self.state.buffers);
         self.state.memory = Some(
@@ -284,6 +334,14 @@ impl<'a, T> Job<'a, T> {
                     vk::ShaderStageFlags::COMPUTE,
                 );
             }
+            for i in 0..self.state.uniforms.len() {
+                shader.borrow_mut().add_layout_binding(
+                    self.state.uniforms[i].0.bind,
+                    1,
+                    vk::DescriptorType::UNIFORM_BUFFER,
+                    vk::ShaderStageFlags::COMPUTE,
+                )
+            }
             shader.borrow_mut().create_pipeline_layout();
             shad_pipeline_layout.push(shader.borrow().pipeline.unwrap());
             shad_pip_vec.push(vkpipeline::VkComputePipeline::new(
@@ -303,6 +361,10 @@ impl<'a, T> Job<'a, T> {
             descriptor.add_pool_size(
                 self.state.buffers.len() as u32,
                 vk::DescriptorType::STORAGE_BUFFER,
+            );
+            descriptor.add_pool_size(
+                self.state.uniforms.len() as u32,
+                vk::DescriptorType::UNIFORM_BUFFER,
             );
             descriptor.create_pool(1);
             descriptor.create_set();
