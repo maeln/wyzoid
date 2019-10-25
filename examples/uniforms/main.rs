@@ -1,9 +1,31 @@
 extern crate wyzoid;
+use std::os::raw::c_void;
 use std::path::PathBuf;
 use std::rc::Rc;
 use wyzoid::{high, utils};
 
 const DATA_LEN: usize = 64;
+
+struct MyUbo {
+    my_value: f32,
+}
+
+impl MyUbo {
+    fn new(val: f32) -> MyUbo {
+        MyUbo { my_value: val }
+    }
+}
+
+impl wyzoid::low::vkmem::Serializable for MyUbo {
+    fn serialize(&self) -> *const c_void {
+        let ptr = &self.my_value as *const f32;
+        ptr as *const c_void
+    }
+
+    fn byte_size(&self) -> usize {
+        std::mem::size_of::<f32>()
+    }
+}
 
 fn main() {
     // We generate 64 random float between 0.0 and 1.0.
@@ -16,16 +38,12 @@ fn main() {
 
     // We create the compute job.
     // Since our shader has a local work size of 64, we divide the number of data by 64 for the dispatch.
-    let ubo_val: f32 = 4.0;
+    let ubo_val = MyUbo::new(4.0);
     // Yeah we need to come up with a proper solution.
-    let fp: *const f32 = &ubo_val;
-    let casted: *const u8 = fp as *const _;
-    let dirty: Vec<u8> =
-        unsafe { std::slice::from_raw_parts(casted, std::mem::size_of::<f32>()).to_vec() };
 
     let mut job = high::job::JobBuilder::new()
         .add_buffer(&input, 0, 0)
-        .add_ubo(&dirty, 0, 1)
+        .add_ubo(&ubo_val, 0, 1)
         .add_shader(&shader)
         .add_dispatch(((DATA_LEN / 64) as u32, 1, 1))
         .build(vulkan);

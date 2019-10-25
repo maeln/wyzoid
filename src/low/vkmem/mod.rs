@@ -6,6 +6,23 @@ use crate::low::vkstate::VulkanState;
 use log::info;
 use std::rc::Rc;
 
+use std::os::raw::c_void;
+
+pub trait Serializable {
+    fn serialize(&self) -> *const c_void;
+    fn byte_size(&self) -> usize;
+}
+
+impl<T: Serializable> Serializable for &T {
+    fn serialize(&self) -> *const c_void {
+        (*self).serialize()
+    }
+
+    fn byte_size(&self) -> usize {
+        (*self).byte_size()
+    }
+}
+
 pub struct VkMem {
     pub size: u64,
     pub index: u32,
@@ -192,6 +209,28 @@ impl VkMem {
 
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), pp_data, data.len());
+        }
+
+        unsafe {
+            self.state.device.unmap_memory(self.mem);
+        }
+    }
+
+    pub fn map_serializable_to_buffer<T: Serializable>(&self, data: T, buffer: &VkBuffer) {
+        let pp_data: *mut c_void = unsafe {
+            self.state
+                .device
+                .map_memory(
+                    self.mem,
+                    buffer.offset,
+                    buffer.size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .expect("[ERR] Could not map memory.") as *mut c_void
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.serialize(), pp_data, data.byte_size());
         }
 
         unsafe {

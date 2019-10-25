@@ -144,10 +144,10 @@ pub enum JobStatus {
     FAILURE,
 }
 
-pub struct Job<'a, T> {
+pub struct Job<'a, T, B: vkmem::Serializable> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
-    uniforms: Vec<(BindPoint, &'a Vec<u8>)>,
+    uniforms: Vec<(BindPoint, &'a B)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
     state: JobState,
@@ -184,16 +184,16 @@ impl ShaderState {
     }
 }
 
-pub struct JobBuilder<'a, T> {
+pub struct JobBuilder<'a, T, B: vkmem::Serializable> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
-    uniforms: Vec<(BindPoint, &'a Vec<u8>)>,
+    uniforms: Vec<(BindPoint, &'a B)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
 }
 
-impl<'a, T> JobBuilder<'a, T> {
-    pub fn new() -> JobBuilder<'a, T> {
+impl<'a, T, B: vkmem::Serializable> JobBuilder<'a, T, B> {
+    pub fn new() -> JobBuilder<'a, T, B> {
         JobBuilder {
             inputs: Vec::new(),
             buffers: Vec::new(),
@@ -203,32 +203,32 @@ impl<'a, T> JobBuilder<'a, T> {
         }
     }
 
-    pub fn add_buffer(mut self, data: &'a Vec<T>, set: u32, bind: u32) -> JobBuilder<'a, T> {
+    pub fn add_buffer(mut self, data: &'a Vec<T>, set: u32, bind: u32) -> JobBuilder<'a, T, B> {
         self.inputs.push((BindPoint::new(set, bind), data));
         self
     }
 
-    pub fn add_ro_buffer(mut self, size: usize, set: u32, bind: u32) -> JobBuilder<'a, T> {
+    pub fn add_ro_buffer(mut self, size: usize, set: u32, bind: u32) -> JobBuilder<'a, T, B> {
         self.buffers.push((BindPoint::new(set, bind), size));
         self
     }
 
-    pub fn add_ubo(mut self, data: &'a Vec<u8>, set: u32, bind: u32) -> JobBuilder<'a, T> {
+    pub fn add_ubo(mut self, data: &'a B, set: u32, bind: u32) -> JobBuilder<'a, T, B> {
         self.uniforms.push((BindPoint::new(set, bind), data));
         self
     }
 
-    pub fn add_shader(mut self, shader: &'a PathBuf) -> JobBuilder<'a, T> {
+    pub fn add_shader(mut self, shader: &'a PathBuf) -> JobBuilder<'a, T, B> {
         self.shaders.push(shader);
         self
     }
 
-    pub fn add_dispatch(mut self, dispatch: (u32, u32, u32)) -> JobBuilder<'a, T> {
+    pub fn add_dispatch(mut self, dispatch: (u32, u32, u32)) -> JobBuilder<'a, T, B> {
         self.dispatch.push(dispatch);
         self
     }
 
-    pub fn build(self, vulkan: Rc<vkstate::VulkanState>) -> Job<'a, T> {
+    pub fn build(self, vulkan: Rc<vkstate::VulkanState>) -> Job<'a, T, B> {
         let state = JobState {
             fence: None,
             buffers: Vec::new(),
@@ -252,24 +252,10 @@ impl<'a, T> JobBuilder<'a, T> {
 
 // TODO: Correctly manage set binding.
 // For the moment, all binding will use the set 0 neverminding the actual value in BindPoint
-impl<'a, T> Job<'a, T> {
-    pub fn update_ubo(&self, set: u32, binding: u32, d: f32) {
-        println!("{:?}", self.state.uniforms[0].0);
-        if let Some(pos) = self
-            .state
-            .uniforms
-            .iter()
-            .position(|u| u.0.set == set && u.0.bind == binding)
-        {
-            println!("yolo");
-            self.state
-                .memory
-                .as_ref()
-                .unwrap()
-                .map_buffer(&vec![d], &self.state.uniforms[pos].1);
-        }
-    }
-
+impl<'a, T, B> Job<'a, T, B>
+where
+    B: vkmem::Serializable,
+{
     pub fn upload_buffers(&mut self) {
         // Memory init.
         self.state.timing = self.state.timing.start_upload();
@@ -301,7 +287,7 @@ impl<'a, T> Job<'a, T> {
                     uniform.0.clone(),
                     vkmem::VkBuffer::new(
                         self.state.vulkan.clone(),
-                        (uniform.1.len() * std::mem::size_of::<u8>()) as u64,
+                        uniform.1.byte_size() as u64,
                         vk::BufferUsageFlags::UNIFORM_BUFFER,
                     ),
                 )
@@ -346,7 +332,7 @@ impl<'a, T> Job<'a, T> {
                 .memory
                 .as_ref()
                 .unwrap()
-                .map_buffer(self.uniforms[i].1, mbuf);
+                .map_serializable_to_buffer(self.uniforms[i].1, mbuf);
         }
 
         self.state.timing = self.state.timing.stop_upload();
