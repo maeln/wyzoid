@@ -147,7 +147,7 @@ pub enum JobStatus {
 pub struct Job<'a, T> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
-    uniforms: Vec<(BindPoint, usize)>,
+    uniforms: Vec<(BindPoint, &'a Vec<u8>)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
     state: JobState,
@@ -159,13 +159,35 @@ pub struct JobState {
     memory: Option<vkmem::VkMem>,
     buffers: Vec<vkmem::VkBuffer>,
     uniforms: Vec<(BindPoint, vkmem::VkBuffer)>,
+    shaders: ShaderState,
+    cmd_pool: Option<vkcmd::VkCmdPool>,
     vulkan: Rc<vkstate::VulkanState>,
+}
+
+pub struct ShaderState {
+    shaders: Vec<Rc<RefCell<vkshader::VkShader>>>,
+    compute_pipeline: Vec<vkpipeline::VkComputePipeline>,
+    pipeline_layout: Vec<vk::PipelineLayout>,
+    descriptors: Vec<vkdescriptor::VkDescriptor>,
+    write_descriptors: Vec<vkdescriptor::VkWriteDescriptor>,
+}
+
+impl ShaderState {
+    pub fn new() -> ShaderState {
+        ShaderState {
+            shaders: Vec::new(),
+            compute_pipeline: Vec::new(),
+            pipeline_layout: Vec::new(),
+            descriptors: Vec::new(),
+            write_descriptors: Vec::new(),
+        }
+    }
 }
 
 pub struct JobBuilder<'a, T> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
-    uniforms: Vec<(BindPoint, usize)>,
+    uniforms: Vec<(BindPoint, &'a Vec<u8>)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
 }
@@ -191,8 +213,8 @@ impl<'a, T> JobBuilder<'a, T> {
         self
     }
 
-    pub fn add_ubo(mut self, size: usize, set: u32, bind: u32) -> JobBuilder<'a, T> {
-        self.uniforms.push((BindPoint::new(set, bind), size));
+    pub fn add_ubo(mut self, data: &'a Vec<u8>, set: u32, bind: u32) -> JobBuilder<'a, T> {
+        self.uniforms.push((BindPoint::new(set, bind), data));
         self
     }
 
@@ -213,6 +235,8 @@ impl<'a, T> JobBuilder<'a, T> {
             uniforms: Vec::new(),
             memory: None,
             timing: JobTimingsBuilder::new(),
+            shaders: ShaderState::new(),
+            cmd_pool: None,
             vulkan: vulkan,
         };
         Job {
@@ -246,14 +270,11 @@ impl<'a, T> Job<'a, T> {
         }
     }
 
-    pub fn execute(&mut self) {
-        let inputs = &self.inputs;
-        let shaders = &self.shaders;
-        let dispatch = &self.dispatch;
-
+    pub fn upload_buffers(&mut self) {
         // Memory init.
         self.state.timing = self.state.timing.start_upload();
-        let mut buffer_sizes: Vec<u64> = inputs
+        let mut buffer_sizes: Vec<u64> = self
+            .inputs
             .iter()
             .map(|v| (v.1.len() * std::mem::size_of::<T>()) as u64)
             .collect();
@@ -280,7 +301,7 @@ impl<'a, T> Job<'a, T> {
                     uniform.0.clone(),
                     vkmem::VkBuffer::new(
                         self.state.vulkan.clone(),
-                        uniform.1 as u64,
+                        (uniform.1.len() * std::mem::size_of::<u8>()) as u64,
                         vk::BufferUsageFlags::UNIFORM_BUFFER,
                     ),
                 )
@@ -288,8 +309,16 @@ impl<'a, T> Job<'a, T> {
             .collect();
 
         // TODO: Include uniforms in the calculation.
-        let (mem_size, offsets) =
-            vkmem::compute_non_overlapping_buffer_alignment(&self.state.buffers);
+        let mut total_buffer: Vec<&vkmem::VkBuffer> =
+            Vec::with_capacity(self.state.buffers.len() + self.state.uniforms.len());
+        for b in &self.state.buffers {
+            total_buffer.push(b);
+        }
+        for u in &self.state.uniforms {
+            total_buffer.push(&u.1);
+        }
+
+        let (mem_size, offsets) = vkmem::compute_non_overlapping_buffer_alignment(&total_buffer);
         self.state.memory = Some(
             vkmem::VkMem::find_mem(self.state.vulkan.clone(), mem_size)
                 .expect("[ERR] Could not find a memory type fitting our need."),
@@ -298,34 +327,45 @@ impl<'a, T> Job<'a, T> {
         for i in 0..self.state.buffers.len() {
             let mbuf = self.state.buffers.get_mut(i).unwrap();
             mbuf.bind(self.state.memory.as_ref().unwrap().mem, offsets[i]);
-            if i < inputs.len() {
+            if i < self.inputs.len() {
                 self.state
                     .memory
                     .as_ref()
                     .unwrap()
-                    .map_buffer(inputs[i].1, mbuf);
+                    .map_buffer(self.inputs[i].1, mbuf);
             }
         }
 
-        self.state.timing = self.state.timing.stop_upload();
+        for i in 0..self.state.uniforms.len() {
+            let mbuf = &mut self.state.uniforms[i].1;
+            mbuf.bind(
+                self.state.memory.as_ref().unwrap().mem,
+                offsets[self.state.buffers.len() + i],
+            );
+            self.state
+                .memory
+                .as_ref()
+                .unwrap()
+                .map_buffer(self.uniforms[i].1, mbuf);
+        }
 
+        self.state.timing = self.state.timing.stop_upload();
+    }
+
+    pub fn build_shader(&mut self) {
         // Shaders
         self.state.timing = self.state.timing.start_shader();
-        let mut shad_vec: Vec<Rc<RefCell<vkshader::VkShader>>> = Vec::with_capacity(shaders.len());
-        let mut shad_pip_vec: Vec<vkpipeline::VkComputePipeline> =
-            Vec::with_capacity(shaders.len());
-        let mut shad_pipeline_layout: Vec<vk::PipelineLayout> = Vec::with_capacity(shaders.len());
-        let mut shad_desc_vec: Vec<vkdescriptor::VkDescriptor> = Vec::with_capacity(shaders.len());
-        let mut shad_desc_set: Vec<vkdescriptor::VkWriteDescriptor> =
-            Vec::with_capacity(shaders.len());
-        for path in shaders {
-            shad_vec.push(Rc::new(RefCell::new(vkshader::VkShader::new(
-                self.state.vulkan.clone(),
-                path,
-                CString::new("main").unwrap(),
-            ))));
+        for path in &self.shaders {
+            self.state
+                .shaders
+                .shaders
+                .push(Rc::new(RefCell::new(vkshader::VkShader::new(
+                    self.state.vulkan.clone(),
+                    path,
+                    CString::new("main").unwrap(),
+                ))));
         }
-        for shader in shad_vec.iter_mut() {
+        for shader in self.state.shaders.shaders.iter_mut() {
             for i in 0..self.state.buffers.len() {
                 shader.borrow_mut().add_layout_binding(
                     i as u32,
@@ -343,21 +383,33 @@ impl<'a, T> Job<'a, T> {
                 )
             }
             shader.borrow_mut().create_pipeline_layout();
-            shad_pipeline_layout.push(shader.borrow().pipeline.unwrap());
-            shad_pip_vec.push(vkpipeline::VkComputePipeline::new(
-                self.state.vulkan.clone(),
-                &shader.borrow(),
-            ));
-            shad_desc_vec.push(vkdescriptor::VkDescriptor::new(
-                self.state.vulkan.clone(),
-                shader.clone(),
-            ));
-            shad_desc_set.push(vkdescriptor::VkWriteDescriptor::new(
-                self.state.vulkan.clone(),
-            ));
+            self.state
+                .shaders
+                .pipeline_layout
+                .push(shader.borrow().pipeline.unwrap());
+            self.state
+                .shaders
+                .compute_pipeline
+                .push(vkpipeline::VkComputePipeline::new(
+                    self.state.vulkan.clone(),
+                    &shader.borrow(),
+                ));
+            self.state
+                .shaders
+                .descriptors
+                .push(vkdescriptor::VkDescriptor::new(
+                    self.state.vulkan.clone(),
+                    shader.clone(),
+                ));
+            self.state
+                .shaders
+                .write_descriptors
+                .push(vkdescriptor::VkWriteDescriptor::new(
+                    self.state.vulkan.clone(),
+                ));
         }
 
-        for descriptor in shad_desc_vec.iter_mut() {
+        for descriptor in self.state.shaders.descriptors.iter_mut() {
             descriptor.add_pool_size(
                 self.state.buffers.len() as u32,
                 vk::DescriptorType::STORAGE_BUFFER,
@@ -371,8 +423,9 @@ impl<'a, T> Job<'a, T> {
         }
 
         let mut n = 0;
-        for write_descriptor_set in shad_desc_set.iter_mut() {
-            let desc_set: vk::DescriptorSet = *shad_desc_vec[n].get_first_set().unwrap();
+        for write_descriptor_set in self.state.shaders.write_descriptors.iter_mut() {
+            let desc_set: vk::DescriptorSet =
+                *self.state.shaders.descriptors[n].get_first_set().unwrap();
             let mut buffers_nfos: Vec<Vec<vk::DescriptorBufferInfo>> = Vec::new();
             for i in 0..self.state.buffers.len() {
                 write_descriptor_set.add_buffer(
@@ -389,33 +442,57 @@ impl<'a, T> Job<'a, T> {
                     0,
                 );
             }
+            for i in 0..self.state.uniforms.len() {
+                write_descriptor_set.add_buffer(
+                    self.state.uniforms[i].1.buffer,
+                    0,
+                    self.state.uniforms[i].1.size,
+                );
+                buffers_nfos.push(vec![
+                    write_descriptor_set.buffer_descriptors[self.state.buffers.len() + i],
+                ]);
+                write_descriptor_set.add_write_descriptors(
+                    desc_set,
+                    vk::DescriptorType::UNIFORM_BUFFER,
+                    &buffers_nfos[self.state.buffers.len() + i],
+                    self.state.uniforms[i].0.bind,
+                    0,
+                );
+            }
             write_descriptor_set.update_descriptors_sets();
             n += 1;
         }
 
         self.state.timing = self.state.timing.stop_shader();
+    }
 
+    pub fn execute(&mut self) {
         // Command buffers
         self.state.timing = self.state.timing.start_cmd();
-        let mut cmd_buffers: Vec<usize> = Vec::with_capacity(shaders.len());
-        let mut cmd_pool = vkcmd::VkCmdPool::new(self.state.vulkan.clone());
+        self.state.cmd_pool = Some(vkcmd::VkCmdPool::new(self.state.vulkan.clone()));
+        let pool_ref = self.state.cmd_pool.as_mut().unwrap();
+        let mut cmd_buffers = Vec::with_capacity(self.shaders.len());
 
-        for _ in 0..shaders.len() {
-            cmd_buffers.push(cmd_pool.create_cmd_buffer(vk::CommandBufferLevel::PRIMARY));
+        for _ in 0..self.shaders.len() {
+            cmd_buffers.push(pool_ref.create_cmd_buffer(vk::CommandBufferLevel::PRIMARY));
         }
 
         for i in cmd_buffers {
-            cmd_pool.begin_cmd(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT, i);
-            cmd_pool.bind_pipeline(shad_pip_vec[i].pipeline, vk::PipelineBindPoint::COMPUTE, i);
-            cmd_pool.bind_descriptor(
-                shad_pipeline_layout[i],
+            pool_ref.begin_cmd(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT, i);
+            pool_ref.bind_pipeline(
+                self.state.shaders.compute_pipeline[i].pipeline,
                 vk::PipelineBindPoint::COMPUTE,
-                &shad_desc_vec[i].set,
+                i,
+            );
+            pool_ref.bind_descriptor(
+                self.state.shaders.pipeline_layout[i],
+                vk::PipelineBindPoint::COMPUTE,
+                &self.state.shaders.descriptors[i].set,
                 i,
             );
 
-            let d = dispatch[i];
-            cmd_pool.dispatch(d.0, d.1, d.2, i);
+            let d = self.dispatch[i];
+            pool_ref.dispatch(d.0, d.1, d.2, i);
 
             // Memory barrier
             let mut buffer_barrier: Vec<vk::BufferMemoryBarrier> = Vec::new();
@@ -431,7 +508,7 @@ impl<'a, T> Job<'a, T> {
             }
             unsafe {
                 self.state.vulkan.device.cmd_pipeline_barrier(
-                    cmd_pool.cmd_buffers[i],
+                    pool_ref.cmd_buffers[i],
                     vk::PipelineStageFlags::COMPUTE_SHADER,
                     vk::PipelineStageFlags::COMPUTE_SHADER,
                     vk::DependencyFlags::empty(),
@@ -441,7 +518,7 @@ impl<'a, T> Job<'a, T> {
                 );
             }
 
-            cmd_pool.end_cmd(i);
+            pool_ref.end_cmd(i);
         }
         self.state.timing = self.state.timing.stop_cmd();
 
@@ -454,7 +531,7 @@ impl<'a, T> Job<'a, T> {
                 .device
                 .get_device_queue(self.state.vulkan.queue_family_index, 0)
         };
-        cmd_pool.submit(queue, Some(self.state.fence.as_ref().unwrap().fence));
+        pool_ref.submit(queue, Some(self.state.fence.as_ref().unwrap().fence));
     }
 
     pub fn status(&self) -> JobStatus {

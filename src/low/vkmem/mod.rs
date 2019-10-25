@@ -74,7 +74,7 @@ impl VkBuffer {
 }
 
 /// Return (minimum memory size needed, buffers offsets)
-pub fn compute_non_overlapping_buffer_alignment(buffers: &Vec<VkBuffer>) -> (u64, Vec<u64>) {
+pub fn compute_non_overlapping_buffer_alignment(buffers: &Vec<&VkBuffer>) -> (u64, Vec<u64>) {
     let mut min_size = 0;
     let mut offsets: Vec<u64> = Vec::new();
     for buffer in buffers {

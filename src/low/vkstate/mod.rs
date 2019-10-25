@@ -75,7 +75,7 @@ unsafe extern "system" fn vulkan_debug_callback(
     p_message: *const c_char,
     _: *mut c_void,
 ) -> u32 {
-    warn!("\n{:?}", CStr::from_ptr(p_message));
+    println!("\n{:?}", CStr::from_ptr(p_message));
     vk::FALSE
 }
 

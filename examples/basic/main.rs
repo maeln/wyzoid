@@ -21,7 +21,8 @@ fn main() {
         .add_shader(&shader)
         .add_dispatch(((DATA_LEN / 64) as u32, 1, 1))
         .build(vulkan);
-
+    job.upload_buffers();
+    job.build_shader();
     job.execute();
     while job.status() == wyzoid::high::job::JobStatus::EXECUTING {
         job.wait_until_idle(1 * 1000 * 1000 * 1000);
