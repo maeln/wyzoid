@@ -184,10 +184,45 @@ impl ShaderState {
     }
 }
 
-pub struct JobBuilder<'a, T, B: vkmem::Serializable> {
+/// A high-level structure that will represent a buffer that can be uploaded
+/// to the GPU memory.
+pub struct Buffer<T> {
+    /// The bind point of the buffer on the GPU
+    bind: BindPoint,
+    /// The data to upload. Note that the `Buffer` own its `Vec`.
+    data: Vec<T>,
+}
+
+impl<T> Buffer<T> {
+    /// Create a new buffer.
+    /// # Arguments
+    /// * `bind` - The bindpoint of the buffer on the GPU
+    /// * `data` - The data of the buffer.
+    /// `Buffer` will copy the `Vec` meaning the original `Vec` can be safely discarded after.
+    pub fn new(bind: BindPoint, data: &Vec<T>) -> Buffer<T> {
+        Buffer {
+            bind,
+            data: *data.clone(),
+        }
+    }
+
+    /// The size (in octet) of the buffer
+    pub fn size(&self) -> usize {
+        std::mem::size_of::<T>() * self.data.len()
+    }
+}
+
+pub struct Uniform<T> {
+    bind: BindPoint,
+    data: T,
+}
+
+impl<T: vkmem::Serializable> Uniform<T> {}
+
+pub struct JobBuilder<'a, T> {
     inputs: Vec<(BindPoint, &'a Vec<T>)>,
     buffers: Vec<(BindPoint, usize)>,
-    uniforms: Vec<(BindPoint, &'a B)>,
+    uniforms: Vec<(BindPoint, &'a vkmem::Serializable)>,
     shaders: Vec<&'a PathBuf>,
     dispatch: Vec<(u32, u32, u32)>,
 }
