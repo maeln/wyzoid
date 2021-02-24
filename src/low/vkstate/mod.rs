@@ -1,6 +1,6 @@
 pub use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
-use ash::vk::{self, PhysicalDevice};
-use ash::{Device, Entry, Instance};
+use ash::vk::PhysicalDevice;
+use ash::{vk, Device, Entry, Instance};
 
 use crate::utils::{cstr2string, tick};
 
@@ -94,9 +94,9 @@ pub fn init_vulkan() -> VulkanState {
     let app_name = CString::new("Wyzoid").unwrap();
     let entry = Entry::new().unwrap();
     let app_info = vk::ApplicationInfo::builder()
-        .api_version(ash::vk_make_version!(1, 0, 0))
+        .api_version(vk::make_version(1, 0, 0))
         .application_name(&app_name)
-        .application_version(ash::vk_make_version!(1, 0, 0));
+        .application_version(vk::make_version(1, 0, 0));
     let create_info = vk::InstanceCreateInfo::builder()
         .application_info(&app_info)
         .enabled_layer_names(&layers_names_raw)

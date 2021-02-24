@@ -1,9 +1,9 @@
+use log::error;
 use rand::Rng;
 use std::ffi::CString;
 use std::ops::{Add, Div, Mul, Sub};
 use std::path::PathBuf;
 use std::time::Duration;
-use log::{error};
 
 pub fn to_vec32(vecin: Vec<u8>) -> Vec<u32> {
     unsafe { vecin.align_to::<u32>().1.to_vec() }
@@ -48,13 +48,13 @@ pub fn f32_cmp(a: f32, b: f32, epsilon: f32) -> bool {
 
 pub fn rand_vec<T>(len: usize, low: T, high: T) -> Vec<T>
 where
-    T: rand::distributions::uniform::SampleUniform + Copy,
+    T: rand::distributions::uniform::SampleUniform + Copy + PartialOrd,
 {
     let mut rng = rand::thread_rng();
     let mut output: Vec<T> = Vec::with_capacity(len);
 
     for _ in 0..len {
-        output.push(rng.gen_range(low, high))
+        output.push(rng.gen_range(low..high))
     }
 
     output
