@@ -1,6 +1,8 @@
+use ash::extensions::khr::Display;
 use log::error;
 use rand::Rng;
 use std::ffi::CString;
+use std::fmt::Display as FmtDisplay;
 use std::ops::{Add, Div, Mul, Sub};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -107,4 +109,18 @@ pub fn to_ppm(data: &Vec<f32>, width: usize, height: usize) -> Option<String> {
     }
 
     Some(ppm)
+}
+
+pub fn to_csv<T>(label: &str, values: &Vec<T>) -> String
+where
+    T: FmtDisplay,
+{
+    let mut csv = String::new();
+    csv.push_str(label);
+    csv.push(';');
+    for val in values {
+        csv.push_str(&format!("{};", val));
+    }
+    csv.push('\n');
+    return csv;
 }

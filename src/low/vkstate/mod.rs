@@ -84,7 +84,7 @@ fn extension_names() -> Vec<*const i8> {
 }
 
 pub fn init_vulkan() -> VulkanState {
-    let layer_names = [CString::new("VK_LAYER_LUNARG_standard_validation").unwrap()];
+    let layer_names = [CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
     let layers_names_raw: Vec<*const i8> = layer_names
         .iter()
         .map(|raw_name| raw_name.as_ptr())
@@ -94,7 +94,7 @@ pub fn init_vulkan() -> VulkanState {
     let app_name = CString::new("Wyzoid").unwrap();
     let entry = Entry::new().unwrap();
     let app_info = vk::ApplicationInfo::builder()
-        .api_version(vk::make_version(1, 0, 0))
+        .api_version(vk::make_version(1, 2, 0))
         .application_name(&app_name)
         .application_version(vk::make_version(1, 0, 0));
     let create_info = vk::InstanceCreateInfo::builder()
