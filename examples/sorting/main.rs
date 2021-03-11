@@ -21,7 +21,7 @@ fn main() {
         .add_buffer(&input, 0, 0)
         .add_buffer(&output, 0, 1)
         .add_shader(&shader)
-        .add_dispatch((DATA_LEN, 1, 1))
+        .add_dispatch((DATA_LEN as u32, 1, 1))
         .build(vulkan);
 
     job.execute();
