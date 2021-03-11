@@ -3,3 +3,4 @@
 .DS_Store
 shaders/bin/*
 *.ppm
+*.csv
