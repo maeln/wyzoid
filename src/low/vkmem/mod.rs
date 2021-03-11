@@ -6,29 +6,44 @@ use crate::low::vkstate::VulkanState;
 use log::info;
 use std::rc::Rc;
 
+use std::os::raw::c_void;
+
+pub trait Serializable {
+    fn serialize(&self) -> *const c_void;
+    fn byte_size(&self) -> usize;
+}
+
+impl<T: Serializable> Serializable for &T {
+    fn serialize(&self) -> *const c_void {
+        (*self).serialize()
+    }
+
+    fn byte_size(&self) -> usize {
+        (*self).byte_size()
+    }
+}
+
 pub struct VkMem {
     pub size: u64,
     pub index: u32,
     pub mem: DeviceMemory,
-
     state: Rc<VulkanState>,
 }
 
-/// For the moment, I am going to assume that 1 MemAlloc = 1 Buffer.
-/// This should be changed to allow several buffer in one allocation which is more efficient.
 pub struct VkBuffer {
     pub size: u64,
     pub offset: u64,
     pub buffer: vk::Buffer,
+    pub usage: vk::BufferUsageFlags,
     state: Rc<VulkanState>,
 }
 
 impl VkBuffer {
-    pub fn new(vkstate: Rc<VulkanState>, size: u64) -> Self {
+    pub fn new(vkstate: Rc<VulkanState>, size: u64, usage: vk::BufferUsageFlags) -> Self {
         let queue_indices = &[vkstate.queue_family_index];
         let buffer_create_info = vk::BufferCreateInfo::builder()
             .size(size)
-            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+            .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .queue_family_indices(queue_indices);
 
@@ -43,6 +58,7 @@ impl VkBuffer {
             size,
             offset: 0,
             buffer,
+            usage,
             state: vkstate,
         }
     }
@@ -75,7 +91,7 @@ impl VkBuffer {
 }
 
 /// Return (minimum memory size needed, buffers offsets)
-pub fn compute_non_overlapping_buffer_alignment(buffers: &Vec<VkBuffer>) -> (u64, Vec<u64>) {
+pub fn compute_non_overlapping_buffer_alignment(buffers: &Vec<&VkBuffer>) -> (u64, Vec<u64>) {
     let mut min_size = 0;
     let mut offsets: Vec<u64> = Vec::new();
     for buffer in buffers {
@@ -193,6 +209,28 @@ impl VkMem {
 
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), pp_data, data.len());
+        }
+
+        unsafe {
+            self.state.device.unmap_memory(self.mem);
+        }
+    }
+
+    pub fn map_serializable_to_buffer<T: Serializable>(&self, data: T, buffer: &VkBuffer) {
+        let pp_data: *mut c_void = unsafe {
+            self.state
+                .device
+                .map_memory(
+                    self.mem,
+                    buffer.offset,
+                    buffer.size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .expect("[ERR] Could not map memory.") as *mut c_void
+        };
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.serialize(), pp_data, data.byte_size());
         }
 
         unsafe {
