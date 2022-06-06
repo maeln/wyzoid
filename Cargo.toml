@@ -17,5 +17,5 @@ lto = true
 
 [dependencies]
 rand = "0.8"
-ash = "0.31"
+ash = "0.33"
 log = "0.4"
