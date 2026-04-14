@@ -16,6 +16,6 @@ debug = true
 lto = true
 
 [dependencies]
-rand = "0.8"
+rand = "0.9"
 ash = "0.31"
 log = "0.4"
